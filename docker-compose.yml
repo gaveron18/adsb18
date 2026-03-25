@@ -1,0 +1,45 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./server/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+      interval: 5s
+      retries: 10
+
+  ingest:
+    build: ./server/ingest
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "30001:30001"      # feeders (Pi) connect here
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: ./server/api
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8098:80"          # web interface: http://173.249.2.184:8098
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
