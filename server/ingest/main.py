@@ -116,6 +116,8 @@ async def main():
     store.set_pool(pool)
     log.info('Connected to PostgreSQL')
 
+    # Ensure partitions exist (current + next 2 months), check daily
+    asyncio.create_task(store.partition_watchdog())
     # Background DB writer
     asyncio.create_task(store.writer_loop())
 
