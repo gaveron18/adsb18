@@ -145,6 +145,38 @@ async def aircraft_list(hours: int = Query(24, le=168)):
     return [dict(r) for r in rows]
 
 
+@app.get('/api/archive')
+async def archive(
+    from_ts: str = Query(..., alias='from'),
+    to_ts:   str = Query(..., alias='to'),
+):
+    """List of unique flights in date range for archive page."""
+    try:
+        t_from = datetime.fromisoformat(from_ts)
+        t_to   = datetime.fromisoformat(to_ts)
+    except ValueError:
+        return JSONResponse({'error': 'Invalid date format'}, status_code=400)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                icao,
+                callsign,
+                MIN(ts)       AS first_seen,
+                MAX(ts)       AS last_seen,
+                COUNT(*)      AS points,
+                MAX(altitude) AS max_altitude,
+                MAX(ground_speed) AS max_speed
+            FROM positions
+            WHERE ts BETWEEN $1 AND $2
+              AND lat IS NOT NULL
+            GROUP BY icao, callsign
+            ORDER BY first_seen DESC
+        """, t_from, t_to)
+
+    return [dict(r) for r in rows]
+
+
 @app.get('/api/feeders')
 async def feeders():
     """List of registered feeders."""

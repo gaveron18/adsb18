@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>adsb18 — Архив полётов</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+
+        .topbar {
+            background: #16213e;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            border-bottom: 1px solid #0f3460;
+            flex-shrink: 0;
+        }
+        .topbar h1 { font-size: 16px; color: #4fc3f7; white-space: nowrap; }
+        .topbar a { color: #4fc3f7; text-decoration: none; font-size: 13px; }
+        .topbar a:hover { text-decoration: underline; }
+
+        .filter-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            flex: 1;
+        }
+        .filter-row label { font-size: 12px; color: #aaa; white-space: nowrap; }
+        .filter-row input[type="datetime-local"] {
+            background: #0f3460;
+            border: 1px solid #4fc3f7;
+            color: #e0e0e0;
+            border-radius: 4px;
+            padding: 5px 8px;
+            font-size: 12px;
+        }
+        .btn {
+            background: #4fc3f7;
+            color: #1a1a2e;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .btn:hover { background: #81d4fa; }
+        .btn-clear {
+            background: transparent;
+            border: 1px solid #555;
+            color: #aaa;
+        }
+        .btn-clear:hover { background: #333; color: #fff; }
+
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ── Left panel: flight list ── */
+        .sidebar {
+            width: 340px;
+            min-width: 260px;
+            background: #16213e;
+            border-right: 1px solid #0f3460;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .sidebar-header {
+            padding: 8px 12px;
+            background: #0f3460;
+            font-size: 12px;
+            color: #aaa;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .sidebar-header span { color: #4fc3f7; font-weight: bold; }
+
+        .flight-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+        .flight-list::-webkit-scrollbar { width: 4px; }
+        .flight-list::-webkit-scrollbar-track { background: #16213e; }
+        .flight-list::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 2px; }
+
+        .flight-item {
+            padding: 8px 12px;
+            border-bottom: 1px solid #0f3460;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            transition: background 0.1s;
+        }
+        .flight-item:hover { background: #0f3460; }
+        .flight-item.active { background: #1a4a6e; border-left: 3px solid #4fc3f7; }
+
+        .flight-callsign {
+            font-size: 15px;
+            font-weight: bold;
+            color: #4fc3f7;
+        }
+        .flight-icao { font-size: 11px; color: #aaa; font-family: monospace; }
+        .flight-meta {
+            font-size: 11px;
+            color: #888;
+            display: flex;
+            gap: 10px;
+        }
+        .flight-meta b { color: #bbb; }
+
+        /* ── Right panel: map ── */
+        #map {
+            flex: 1;
+            background: #1a1a2e;
+        }
+
+        /* ── Empty / loading states ── */
+        .empty {
+            padding: 30px 16px;
+            text-align: center;
+            color: #555;
+            font-size: 13px;
+            line-height: 1.8;
+        }
+        .loading { color: #4fc3f7; }
+
+        /* ── Track info panel on map ── */
+        .track-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: rgba(22,33,62,0.92);
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            padding: 10px 14px;
+            min-width: 200px;
+            font-size: 12px;
+            display: none;
+        }
+        .track-info h3 { color: #4fc3f7; font-size: 14px; margin-bottom: 6px; }
+        .track-info table { width: 100%; }
+        .track-info td { padding: 2px 0; }
+        .track-info td:first-child { color: #888; width: 110px; }
+        .track-info td:last-child { color: #e0e0e0; font-weight: bold; }
+
+        /* ── Tooltip ── */
+        .leaflet-tooltip {
+            background: #16213e !important;
+            border: 1px solid #4fc3f7 !important;
+            color: #e0e0e0 !important;
+            font-size: 11px !important;
+        }
+    </style>
+</head>
+<body>
+
+<div class="topbar">
+    <h1>✈ adsb18 — Архив полётов</h1>
+    <a href="/">← Карта live</a>
+    <div class="filter-row">
+        <label>С</label>
+        <input type="datetime-local" id="fromDt">
+        <label>По</label>
+        <input type="datetime-local" id="toDt">
+        <button class="btn" onclick="loadArchive()">Загрузить</button>
+        <button class="btn btn-clear" onclick="clearTrack()">Очистить трек</button>
+    </div>
+</div>
+
+<div class="main">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            Рейсы: <span id="flightCount">—</span>
+        </div>
+        <div class="flight-list" id="flightList">
+            <div class="empty">Выберите период и нажмите «Загрузить»</div>
+        </div>
+    </div>
+
+    <div style="position:relative;flex:1;">
+        <div id="map"></div>
+        <div class="track-info" id="trackInfo">
+            <h3 id="tiCallsign">—</h3>
+            <table>
+                <tr><td>ICAO</td><td id="tiIcao">—</td></tr>
+                <tr><td>Начало</td><td id="tiFrom">—</td></tr>
+                <tr><td>Конец</td><td id="tiTo">—</td></tr>
+                <tr><td>Точек трека</td><td id="tiPoints">—</td></tr>
+                <tr><td>Макс. высота</td><td id="tiAlt">—</td></tr>
+                <tr><td>Макс. скорость</td><td id="tiSpd">—</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── Map init ──────────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([57.914, 56.218], 8);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 18
+}).addTo(map);
+
+let trackLayer = null;
+let activeItem = null;
+
+// ── Date pickers default: last 24h ────────────────────────────────────────────
+(function() {
+    const now  = new Date();
+    const from = new Date(now - 24 * 3600 * 1000);
+    const fmt  = d => {
+        const off = d.getTimezoneOffset();
+        return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16);
+    };
+    document.getElementById('fromDt').value = fmt(from);
+    document.getElementById('toDt').value   = fmt(now);
+})();
+
+function toUTC(localStr) {
+    return localStr ? new Date(localStr).toISOString() : '';
+}
+
+function fmtTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString('ru-RU', { timeZone: 'UTC',
+        day:'2-digit', month:'2-digit', year:'numeric',
+        hour:'2-digit', minute:'2-digit'}) + ' UTC';
+}
+
+function fmtDuration(from, to) {
+    const ms = new Date(to) - new Date(from);
+    const h  = Math.floor(ms / 3600000);
+    const m  = Math.floor((ms % 3600000) / 60000);
+    return h > 0 ? `${h}ч ${m}м` : `${m}м`;
+}
+
+// ── Load flight list ──────────────────────────────────────────────────────────
+async function loadArchive() {
+    const from = toUTC(document.getElementById('fromDt').value);
+    const to   = toUTC(document.getElementById('toDt').value);
+    if (!from || !to) { alert('Выберите период'); return; }
+
+    const list = document.getElementById('flightList');
+    list.innerHTML = '<div class="empty loading">Загрузка...</div>';
+    document.getElementById('flightCount').textContent = '...';
+    clearTrack();
+
+    try {
+        const resp  = await fetch(`/api/archive?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+        const flights = await resp.json();
+
+        document.getElementById('flightCount').textContent = flights.length;
+
+        if (!flights.length) {
+            list.innerHTML = '<div class="empty">Нет данных за выбранный период</div>';
+            return;
+        }
+
+        list.innerHTML = '';
+        flights.forEach(f => {
+            const div = document.createElement('div');
+            div.className = 'flight-item';
+            div.dataset.icao     = f.icao;
+            div.dataset.callsign = f.callsign || '';
+            div.dataset.from     = f.first_seen;
+            div.dataset.to       = f.last_seen;
+            div.dataset.points   = f.points;
+            div.dataset.alt      = f.max_altitude || '';
+            div.dataset.spd      = f.max_speed || '';
+
+            const cs = f.callsign ? f.callsign.trim() : '—';
+            const dur = fmtDuration(f.first_seen, f.last_seen);
+            const alt = f.max_altitude ? Math.round(f.max_altitude / 3.281) + ' м' : '—';
+
+            div.innerHTML = `
+                <div class="flight-callsign">${cs}</div>
+                <div class="flight-icao">${f.icao}</div>
+                <div class="flight-meta">
+                    <span>⏱ <b>${dur}</b></span>
+                    <span>✈ <b>${f.points}</b> точек</span>
+                    <span>↑ <b>${alt}</b></span>
+                </div>
+                <div class="flight-meta" style="color:#666">${fmtTime(f.first_seen)}</div>
+            `;
+            div.onclick = () => loadTrack(div, f);
+            list.appendChild(div);
+        });
+    } catch(e) {
+        list.innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`;
+    }
+}
+
+// ── Load and draw track ───────────────────────────────────────────────────────
+async function loadTrack(el, f) {
+    if (activeItem) activeItem.classList.remove('active');
+    activeItem = el;
+    el.classList.add('active');
+
+    clearTrack();
+
+    try {
+        const resp   = await fetch(`/api/history?icao=${f.icao}&from=${encodeURIComponent(f.first_seen)}&to=${encodeURIComponent(f.last_seen)}&limit=10000`);
+        const points = await resp.json();
+
+        if (!points.length) return;
+
+        const latlngs = points
+            .filter(p => p.lat && p.lon)
+            .map(p => [p.lat, p.lon]);
+
+        if (!latlngs.length) return;
+
+        // Color gradient: low altitude = green, high = red
+        const alts = points.map(p => p.altitude || 0);
+        const minA = Math.min(...alts);
+        const maxA = Math.max(...alts);
+
+        const getColor = (alt) => {
+            const t = maxA > minA ? (alt - minA) / (maxA - minA) : 0.5;
+            const r = Math.round(255 * t);
+            const g = Math.round(255 * (1 - t));
+            return `rgb(${r},${g},80)`;
+        };
+
+        // Draw colored segments
+        const layers = [];
+        for (let i = 1; i < latlngs.length; i++) {
+            const seg = L.polyline([latlngs[i-1], latlngs[i]], {
+                color: getColor(points[i].altitude || 0),
+                weight: 3,
+                opacity: 0.85
+            });
+            seg.bindTooltip(
+                `${Math.round((points[i].altitude || 0) / 3.281)} м · ${points[i].ground_speed || 0} уз`,
+                { sticky: true }
+            );
+            layers.push(seg);
+        }
+
+        // Start / End markers
+        const startIcon = L.divIcon({ html: '🟢', iconSize:[20,20], className:'' });
+        const endIcon   = L.divIcon({ html: '🔴', iconSize:[20,20], className:'' });
+        layers.push(L.marker(latlngs[0], { icon: startIcon }).bindTooltip('Начало трека'));
+        layers.push(L.marker(latlngs[latlngs.length-1], { icon: endIcon }).bindTooltip('Конец трека'));
+
+        trackLayer = L.layerGroup(layers).addTo(map);
+        map.fitBounds(L.latLngBounds(latlngs), { padding: [40, 40] });
+
+        // Update info panel
+        const cs = f.callsign ? f.callsign.trim() : f.icao;
+        document.getElementById('tiCallsign').textContent = cs;
+        document.getElementById('tiIcao').textContent     = f.icao;
+        document.getElementById('tiFrom').textContent     = fmtTime(f.first_seen);
+        document.getElementById('tiTo').textContent       = fmtTime(f.last_seen);
+        document.getElementById('tiPoints').textContent   = latlngs.length;
+        document.getElementById('tiAlt').textContent      = f.max_altitude
+            ? Math.round(f.max_altitude / 3.281) + ' м (' + f.max_altitude + ' фут)'
+            : '—';
+        document.getElementById('tiSpd').textContent      = f.max_speed ? f.max_speed + ' уз' : '—';
+        document.getElementById('trackInfo').style.display = 'block';
+
+    } catch(e) {
+        console.error('Track load error:', e);
+    }
+}
+
+function clearTrack() {
+    if (trackLayer) { map.removeLayer(trackLayer); trackLayer = null; }
+    document.getElementById('trackInfo').style.display = 'none';
+    if (activeItem) { activeItem.classList.remove('active'); activeItem = null; }
+}
+</script>
+</body>
+</html>
