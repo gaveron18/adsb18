@@ -55,6 +55,7 @@ async def handle_feeder(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     name    = None
     feeder_id = None
     msg_count = 0
+    line_count = 0
 
     try:
         # First line must be AUTH
@@ -75,13 +76,21 @@ async def handle_feeder(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         # Main SBS reading loop
         while True:
-            line = await reader.readline()
+            try:
+                line = await asyncio.wait_for(reader.readline(), timeout=30.0)
+            except asyncio.TimeoutError:
+                log.warning(f'Feeder {name}: readline timeout! lines={line_count} msgs={msg_count} buf={len(reader._buffer)}')
+                continue
             if not line:
                 break
+            line_count += 1
             msg = sbs_parser.parse(line.decode('ascii', errors='ignore'))
             if msg:
                 store.enqueue(msg, feeder_id=feeder_id)
                 msg_count += 1
+            if line_count % 50 == 0:
+                log.info(f'Feeder {name}: lines={line_count} msgs={msg_count} batch={len(store._batch)}')
+                await asyncio.sleep(0)  # yield to event loop for writer_loop
 
     except asyncio.TimeoutError:
         log.warning(f'Feeder {ip}: no AUTH received in 10s, disconnecting')

@@ -130,7 +130,7 @@ async def send_to_server(queue: asyncio.Queue, server: str, port: int, name: str
                 line = await queue.get()
                 writer.write(line)
                 msg_count += 1
-                if msg_count % 1000 == 0:
+                if msg_count % 50 == 0:
                     await writer.drain()
                     log.info(f'Forwarded {msg_count} messages')
 

@@ -184,7 +184,83 @@ INGEST_PORT=30001
 
 ---
 
-## Нераскрытые/незакрытые проблемы
+---
 
-- [ ] Нужно проверить что данные продолжают поступать после `asyncio.wait_for` + `asyncio.sleep(0)` фикса
+## Сессия 2026-03-25 (починка потока данных)
+
+### ПРОБЛЕМА 8: Домашний роутер Pi сбрасывает TCP-пакеты к VPS:30001
+
+**Симптомы:**
+- Pi подключается, отправляет ~24 строки, потом данные прекращаются
+- `ss -tnoi` на Pi: `backoff:7-10, retrans:1/8-11, lost:1, cwnd:1, rto:35000-120000ms`
+- VPS принимает только 1976 байт за всё соединение
+- `writer_loop tick: batch=0` бесконечно
+
+**Причина:**
+Домашний роутер Pi делает stateful inspection и после ~1-2KB данных начинает дропать пакеты к VPS:30001. TCP retransmit уходит в exponential backoff (120 секунд между попытками). Прямое соединение Pi → VPS через публичную сеть нестабильно.
+
+**Решение:**
+Пустить трафик фидера через SSH-туннель. Для роутера это обычный SSH-трафик (порт 22), который он не трогает.
+
+1. Добавить local forward в autossh на Pi (`-L 30091:localhost:30001`):
+   ```ini
+   # /etc/systemd/system/adsb-tunnel.service
+   ExecStart=/usr/bin/autossh -M 0 -N \
+     -o ServerAliveInterval=30 \
+     -o ServerAliveCountMax=3 \
+     -o StrictHostKeyChecking=no \
+     -o ExitOnForwardFailure=yes \
+     -i /home/ads-b/.ssh/id_adsb_vps \
+     -R 52222:localhost:22 \
+     -L 30091:localhost:30001 \
+     new@173.249.2.184
+   ```
+
+2. Поменять адрес в feeder:
+   ```ini
+   # /etc/systemd/system/adsb18-feeder.service
+   ExecStart=/usr/bin/python3 /home/ads-b/feeder.py --server 127.0.0.1 --port 30091 --name ads-b-pi
+   ```
+
+**Результат:** данные пошли непрерывно (lines=50, 100, 150... каждые 10 сек)
+
+---
+
+### ПРОБЛЕМА 9: asyncio starvation на Pi (feeder.py)
+
+**Симптомы:**
+Pi вызывал `writer.drain()` каждые 1000 сообщений. asyncio write buffer наполнялся, event loop не получал управление, transport не флашил данные в OS-сокет.
+
+**Решение:**
+```python
+if msg_count % 50 == 0:
+    await asyncio.sleep(0)  # yield to flush transport
+    await writer.drain()
+```
+
+---
+
+### ПРОБЛЕМА 10: Порт 30001 не открыт в UFW
+
+**Симптомы:**
+Прямые TCP-соединения к VPS:30001 иногда работали (established), но данные не шли.
+
+**Решение:**
+```bash
+sudo ufw allow 30001/tcp comment 'adsb18 ingest'
+```
+(Хотя после перехода на SSH-туннель это уже не критично — трафик идёт через порт 22)
+
+---
+
+## Текущее состояние (2026-03-25)
+
+**Работает:**
+- Pi → SSH-туннель → VPS:30001 → PostgreSQL
+- Данные идут стабильно: ~50 строк / 10 сек
+- 9 самолётов в БД, растёт
+- Веб-интерфейс: http://173.249.2.184:8098
+
+**Открытые вопросы:**
 - [ ] Pi иногда накапливает > 10 000 сообщений в очереди (Queue(maxsize=10000)) — возможна потеря при переполнении
+- [ ] Рассмотреть переход на WireGuard + readsb --net-connector для более чистой архитектуры

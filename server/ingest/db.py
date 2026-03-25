@@ -106,6 +106,7 @@ async def writer_loop():
     global _batch
     while True:
         await asyncio.sleep(BATCH_SECS)
+        log.info(f'writer_loop tick: batch={len(_batch)} pool={_pool is not None}')
         if _batch and _pool:
             batch, _batch = _batch, []
             await _flush(batch)
