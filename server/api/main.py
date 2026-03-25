@@ -45,6 +45,19 @@ async def shutdown():
     await pool.close()
 
 
+# ── Receiver info (tar1090 reads this first on startup) ──────────────────────
+
+@app.get('/data/receiver.json')
+async def receiver_json():
+    return JSONResponse({
+        "version":  "adsb18",
+        "refresh":  1000,
+        "history":  0,
+        "lat":      57.914,
+        "lon":      56.218,
+    })
+
+
 # ── Live aircraft (tar1090 format) ────────────────────────────────────────────
 
 @app.get('/data/aircraft.json')
