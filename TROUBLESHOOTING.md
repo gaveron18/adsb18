@@ -285,3 +285,30 @@ sudo tail -20 /var/log/nginx/error.log
 **Открытые вопросы:**
 - [ ] Pi иногда накапливает > 10 000 сообщений в очереди (Queue(maxsize=10000)) — возможна потеря при переполнении
 - [ ] Рассмотреть переход на WireGuard + readsb --net-connector для более чистой архитектуры
+
+---
+
+## Переподключение Pi на другой сервер
+
+Когда меняется IP VPS (переезд, новый сервер):
+
+**Шаг 1 — добавить ключ Pi на новый сервер**
+```bash
+# Посмотреть публичный ключ Pi (с VPS через туннель):
+ssh -p 52222 ads-b@127.0.0.1 'cat /home/ads-b/.ssh/id_adsb_vps.pub'
+
+# Добавить на новом сервере:
+echo 'ПУБЛИЧНЫЙ_КЛЮЧ' >> ~/.ssh/authorized_keys
+```
+
+**Шаг 2 — поменять IP в tunnel-сервисе на Pi**
+```bash
+ssh -p 52222 ads-b@127.0.0.1
+sudo nano /etc/systemd/system/adsb-tunnel.service
+# Поменять: new@СТАРЫЙ_IP  →  new@НОВЫЙ_IP
+sudo systemctl daemon-reload
+sudo systemctl restart adsb-tunnel
+```
+
+**Шаг 3 — готово**
+Фидер переподключится автоматически (он `After=adsb-tunnel.service`).
