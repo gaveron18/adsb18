@@ -35,7 +35,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 $INSTALL_DIR/feeder.py --server $SERVER --name $NAME
+ExecStart=/usr/bin/python3 $INSTALL_DIR/feeder.py --server $SERVER --name $NAME --buffer $INSTALL_DIR/feeder_buffer.sbs
 Restart=always
 RestartSec=10
 User=pi
