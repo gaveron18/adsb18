@@ -57,7 +57,7 @@ CREATE INDEX IF NOT EXISTS idx_aircraft_last_seen ON aircraft (last_seen DESC);
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS feeders (
     id              SERIAL          PRIMARY KEY,
-    name            VARCHAR(64)     NOT NULL,   -- e.g. 'perm-pi5'
+    name            VARCHAR(64)     NOT NULL UNIQUE,  -- e.g. 'perm-pi5'
     lat             REAL,                       -- receiver location
     lon             REAL,
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
