@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS positions (
     id              BIGSERIAL,
     ts              TIMESTAMPTZ     NOT NULL,
     icao            CHAR(6)         NOT NULL,   -- hex ICAO address, e.g. '3C6444'
+    feeder_id       INTEGER,                    -- FK → feeders.id
     callsign        VARCHAR(9),                 -- flight number / tail, e.g. 'SU100'
     altitude        INTEGER,                    -- feet (barometric)
     ground_speed    SMALLINT,                   -- knots
