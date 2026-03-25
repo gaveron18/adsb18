@@ -53,8 +53,8 @@ async def receiver_json():
         "version":  "adsb18",
         "refresh":  1000,
         "history":  0,
-        "lat":      57.914,
-        "lon":      56.218,
+        "lat":      56.8526,
+        "lon":      53.2120,
     })
 
 

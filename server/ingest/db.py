@@ -77,6 +77,30 @@ def enqueue(msg: SBSMessage, feeder_id: Optional[int] = None):
     ))
 
 
+async def ensure_partitions():
+    """Create partitions for current month + next 2 months if they don't exist."""
+    if not _pool:
+        return
+    now = datetime.now(timezone.utc)
+    async with _pool.acquire() as conn:
+        for i in range(3):
+            month = now.month + i
+            year  = now.year + (month - 1) // 12
+            month = (month - 1) % 12 + 1
+            await conn.execute(
+                "SELECT create_monthly_partition('positions', $1, $2)",
+                year, month,
+            )
+    log.info('Partitions checked/created for current + next 2 months')
+
+
+async def partition_watchdog():
+    """Background task: ensure partitions exist, check daily."""
+    while True:
+        await ensure_partitions()
+        await asyncio.sleep(86400)  # 24 hours
+
+
 async def writer_loop():
     """Background task: flush batch to PostgreSQL every BATCH_SECS."""
     global _batch
