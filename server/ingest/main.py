@@ -1,16 +1,22 @@
 """
 adsb18 — Ingest server
 Accepts TCP connections from multiple ADS-B feeders (Raspberry Pi),
-parses SBS stream, writes to PostgreSQL.
+parses SBS stream or JSON snapshots, writes to PostgreSQL.
 
-Protocol:
+Protocol (SBS mode):
   1. Feeder connects to TCP port 30001
   2. First line: AUTH <name>  (e.g. "AUTH perm-pi5")
   3. All subsequent lines: SBS messages
 
+Protocol (JSON mode):
+  1. Feeder connects to TCP port 30001
+  2. First line: AUTH-JSON <name>  (e.g. "AUTH-JSON ads-b-pi")
+  3. All subsequent lines: compact JSON — one aircraft.json snapshot per line
+
 Port: 30001
 """
 import asyncio
+import json
 import logging
 import os
 import asyncpg
@@ -50,19 +56,23 @@ async def register_feeder(pool: asyncpg.Pool, name: str, ip: str) -> int:
 
 
 async def handle_feeder(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    addr    = writer.get_extra_info('peername')
-    ip      = addr[0] if addr else 'unknown'
-    name    = None
+    addr      = writer.get_extra_info('peername')
+    ip        = addr[0] if addr else 'unknown'
+    name      = None
     feeder_id = None
     msg_count = 0
     line_count = 0
+    json_mode = False
 
     try:
-        # First line must be AUTH
+        # First line must be AUTH or AUTH-JSON
         first = await asyncio.wait_for(reader.readline(), timeout=10.0)
         first = first.decode('ascii', errors='ignore').strip()
 
-        if first.startswith('AUTH '):
+        if first.startswith('AUTH-JSON '):
+            name      = first[10:].strip()[:64] or ip
+            json_mode = True
+        elif first.startswith('AUTH '):
             name = first[5:].strip()[:64] or ip
         else:
             # No AUTH — use IP as name, treat first line as SBS
@@ -73,23 +83,41 @@ async def handle_feeder(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 msg_count += 1
 
         feeder_id = await register_feeder(pool_ref[0], name, ip)
+        log.info(f'Feeder "{name}" connected in {"JSON" if json_mode else "SBS"} mode')
 
-        # Main SBS reading loop
+        # Main reading loop
         while True:
             try:
                 line = await asyncio.wait_for(reader.readline(), timeout=30.0)
             except asyncio.TimeoutError:
-                log.warning(f'Feeder {name}: readline timeout! lines={line_count} msgs={msg_count} buf={len(reader._buffer)}')
+                log.warning(
+                    f'Feeder {name}: readline timeout! '
+                    f'lines={line_count} msgs={msg_count}'
+                    + ('' if json_mode else f' buf={len(reader._buffer)}')
+                )
                 continue
             if not line:
                 break
             line_count += 1
-            msg = sbs_parser.parse(line.decode('ascii', errors='ignore'))
-            if msg:
-                store.enqueue(msg, feeder_id=feeder_id)
-                msg_count += 1
-            if line_count % 50 == 0:
-                log.info(f'Feeder {name}: lines={line_count} msgs={msg_count} batch={len(store._batch)}')
+
+            if json_mode:
+                try:
+                    data = json.loads(line.decode('utf-8'))
+                    n = store.process_snapshot(data, feeder_id=feeder_id)
+                    msg_count += n
+                except Exception as e:
+                    log.warning(f'Feeder {name}: JSON parse error: {e}')
+            else:
+                msg = sbs_parser.parse(line.decode('ascii', errors='ignore'))
+                if msg:
+                    store.enqueue(msg, feeder_id=feeder_id)
+                    msg_count += 1
+
+            if line_count % 30 == 0:
+                log.info(
+                    f'Feeder {name}: lines={line_count} msgs={msg_count} '
+                    f'batch={len(store._batch)} json={json_mode}'
+                )
                 await asyncio.sleep(0)  # yield to event loop for writer_loop
 
     except asyncio.TimeoutError:
@@ -133,7 +161,7 @@ async def main():
     server = await asyncio.start_server(handle_feeder, HOST, PORT)
     addrs  = ', '.join(str(s.getsockname()) for s in server.sockets)
     log.info(f'Ingest server listening on {addrs}')
-    log.info(f'Waiting for feeders... (AUTH protocol on port {PORT})')
+    log.info(f'Waiting for feeders... (AUTH / AUTH-JSON protocol on port {PORT})')
 
     async with server:
         await server.serve_forever()

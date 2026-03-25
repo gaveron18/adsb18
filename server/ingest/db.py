@@ -77,6 +77,157 @@ def enqueue(msg: SBSMessage, feeder_id: Optional[int] = None):
     ))
 
 
+def process_snapshot(data: dict, feeder_id: Optional[int] = None) -> int:
+    """
+    Process a full aircraft.json snapshot from readsb.
+
+    data: dict with keys:
+      'now'      — float UNIX timestamp (seconds)
+      'aircraft' — list of aircraft dicts
+
+    Each aircraft dict may contain:
+      hex, flight, alt_baro, gs, track, lat, lon,
+      baro_rate, squawk, seen, seen_pos, ground
+
+    Returns the count of aircraft added to _batch (those with lat+lon).
+    """
+    global _batch
+
+    now_ts = float(data.get('now', 0))
+    if now_ts == 0:
+        now_ts = datetime.now(timezone.utc).timestamp()
+    now_dt = datetime.fromtimestamp(now_ts, tz=timezone.utc)
+
+    aircraft_list = data.get('aircraft', [])
+    added = 0
+
+    for ac in aircraft_list:
+        # --- ICAO ---
+        hex_raw = ac.get('hex', '')
+        icao = hex_raw.upper().strip()
+        if len(icao) != 6:
+            continue
+
+        # --- Callsign ---
+        flight = ac.get('flight')
+        callsign = flight.strip() if flight else None
+        if callsign == '':
+            callsign = None
+
+        # --- Altitude ---
+        alt_baro = ac.get('alt_baro')
+        is_on_ground = bool(ac.get('ground', False))
+        altitude = None
+        if alt_baro == 'ground':
+            altitude = 0
+            is_on_ground = True
+        elif alt_baro is not None:
+            try:
+                altitude = int(round(float(alt_baro)))
+            except (TypeError, ValueError):
+                altitude = None
+
+        # --- Ground speed ---
+        gs = ac.get('gs')
+        ground_speed = None
+        if gs is not None:
+            try:
+                ground_speed = int(round(float(gs)))
+            except (TypeError, ValueError):
+                ground_speed = None
+
+        # --- Track ---
+        track_raw = ac.get('track')
+        track = None
+        if track_raw is not None:
+            try:
+                track = int(round(float(track_raw)))
+            except (TypeError, ValueError):
+                track = None
+
+        # --- Position ---
+        lat = ac.get('lat')
+        lon = ac.get('lon')
+        if lat is not None:
+            try:
+                lat = float(lat)
+            except (TypeError, ValueError):
+                lat = None
+        if lon is not None:
+            try:
+                lon = float(lon)
+            except (TypeError, ValueError):
+                lon = None
+
+        # --- Vertical rate ---
+        baro_rate = ac.get('baro_rate')
+        vertical_rate = None
+        if baro_rate is not None:
+            try:
+                vertical_rate = int(round(float(baro_rate)))
+            except (TypeError, ValueError):
+                vertical_rate = None
+
+        # --- Squawk ---
+        squawk = ac.get('squawk')
+        if squawk is not None:
+            squawk = str(squawk).strip() or None
+
+        # --- Timestamps ---
+        seen = ac.get('seen', 0)
+        seen_pos = ac.get('seen_pos')
+        try:
+            seen = float(seen)
+        except (TypeError, ValueError):
+            seen = 0.0
+
+        # ts for the position record: prefer seen_pos if lat/lon present
+        if lat is not None and lon is not None and seen_pos is not None:
+            try:
+                pos_ts = datetime.fromtimestamp(now_ts - float(seen_pos), tz=timezone.utc)
+            except (TypeError, ValueError):
+                pos_ts = datetime.fromtimestamp(now_ts - seen, tz=timezone.utc)
+        else:
+            pos_ts = datetime.fromtimestamp(now_ts - seen, tz=timezone.utc)
+
+        # --- Update _state for all aircraft ---
+        s = _state.setdefault(icao, {'icao': icao})
+        if callsign   is not None: s['callsign']      = callsign
+        if altitude   is not None: s['altitude']      = altitude
+        if ground_speed is not None: s['ground_speed'] = ground_speed
+        if track      is not None: s['track']         = track
+        if lat        is not None: s['lat']            = lat
+        if lon        is not None: s['lon']            = lon
+        if vertical_rate is not None: s['vertical_rate'] = vertical_rate
+        if squawk     is not None: s['squawk']         = squawk
+        s['is_on_ground'] = is_on_ground
+        s['ts']        = pos_ts
+        s['feeder_id'] = feeder_id
+
+        # --- Add to _batch (positions + aircraft table) for all aircraft ---
+        # For aircraft without lat/lon, lat/lon will be None — _flush uses COALESCE,
+        # so the aircraft table keeps its last known position.
+        _batch.append((
+            pos_ts,
+            icao,
+            feeder_id,
+            callsign,
+            altitude,
+            ground_speed,
+            track,
+            lat,
+            lon,
+            vertical_rate,
+            squawk,
+            is_on_ground,
+        ))
+
+        if lat is not None and lon is not None:
+            added += 1
+
+    return added
+
+
 async def ensure_partitions():
     """Create partitions for current month + next 2 months if they don't exist."""
     if not _pool:
