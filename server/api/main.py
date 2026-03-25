@@ -64,7 +64,7 @@ async def aircraft_json():
 
     aircraft = []
     for r in rows:
-        a = {'hex': r['icao'].lower().strip(), 'seen': round(r['seen_ago'], 1)}
+        a = {'hex': r['icao'].lower().strip(), 'seen': round(float(r['seen_ago']), 1)}
         if r['last_callsign']: a['flight']    = r['last_callsign'].strip()
         if r['last_altitude'] is not None: a['alt_baro']  = r['last_altitude']
         if r['last_speed']    is not None: a['gs']        = r['last_speed']
