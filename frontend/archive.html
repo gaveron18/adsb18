@@ -428,7 +428,6 @@ function buildFlightItem(f, container) {
     el.dataset.color    = color;
     el.dataset.first    = f.first_seen;
     el.dataset.last     = f.last_seen;
-    el._flight          = f;
 
     const cs  = (f.callsign || '').trim() || '—';
     const alt = ft2m(f.max_altitude);
@@ -489,41 +488,37 @@ async function deleteFlight(btn) {
     }
 }
 
-// Render pre-fetched points onto the map; returns valid points array or null
-function renderTrackLayer(pts, f, el, color) {
-    const valid = pts.filter(p => p.lat != null && p.lon != null);
-    if (!valid.length) return null;
-    const layers = [];
-    for (let i = 1; i < valid.length; i++) {
-        const p0 = valid[i - 1], p1 = valid[i];
-        const seg = L.polyline([[p0.lat, p0.lon], [p1.lat, p1.lon]], { color, weight: 3, opacity: 0.9 });
-        const alt = p1.altitude ? ft2m(p1.altitude) : '—';
-        const spd = p1.ground_speed ? p1.ground_speed + ' уз' : '—';
-        seg.bindTooltip(`${(f.callsign||f.icao).trim()}  ↑ ${alt}  ➤ ${spd}`, { sticky: true });
-        layers.push(seg);
-    }
-    layers.push(L.circleMarker([valid[0].lat, valid[0].lon], {
-        radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1
-    }).bindTooltip('▶ ' + (f.callsign||f.icao).trim() + '  ' + fmtTime(f.first_seen)));
-    const last = valid[valid.length - 1];
-    layers.push(L.circleMarker([last.lat, last.lon], {
-        radius: 6, fillColor: '#ff3300', color, weight: 2, fillOpacity: 1
-    }).bindTooltip('■ ' + (f.callsign||f.icao).trim() + '  ' + fmtTime(f.last_seen)));
-    const layer = L.layerGroup(layers).addTo(map);
-    activeTracks.set(f.icao, { layer, color, f, el, valid });
-    el.classList.add('active');
-    el.querySelector('.fi-check').checked = true;
-    return valid;
-}
-
 async function addTrack(f, el, color) {
     el.classList.add('active');
     if (activeTracks.has(f.icao)) return;
+
     try {
         const url = `/api/history?icao=${f.icao}&from=${encodeURIComponent(f.first_seen)}&to=${encodeURIComponent(f.last_seen)}&limit=10000`;
         const pts = await fetch(url).then(r => r.json());
-        const valid = renderTrackLayer(pts, f, el, color);
-        if (!valid) { el.querySelector('.fi-check').checked = false; el.classList.remove('active'); return; }
+        const valid = pts.filter(p => p.lat != null && p.lon != null);
+        if (!valid.length) { el.querySelector('.fi-check').checked = false; el.classList.remove('active'); return; }
+
+        const layers = [];
+        for (let i = 1; i < valid.length; i++) {
+            const p0 = valid[i - 1], p1 = valid[i];
+            const seg = L.polyline([[p0.lat, p0.lon], [p1.lat, p1.lon]], {
+                color, weight: 3, opacity: 0.9,
+            });
+            const alt = p1.altitude ? ft2m(p1.altitude) : '—';
+            const spd = p1.ground_speed ? p1.ground_speed + ' уз' : '—';
+            seg.bindTooltip(`${(f.callsign||f.icao).trim()}  ↑ ${alt}  ➤ ${spd}`, { sticky: true });
+            layers.push(seg);
+        }
+        layers.push(L.circleMarker([valid[0].lat, valid[0].lon], {
+            radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1
+        }).bindTooltip('▶ ' + (f.callsign||f.icao).trim() + '  ' + fmtTime(f.first_seen)));
+        const last = valid[valid.length - 1];
+        layers.push(L.circleMarker([last.lat, last.lon], {
+            radius: 6, fillColor: '#ff3300', color, weight: 2, fillOpacity: 1
+        }).bindTooltip('■ ' + (f.callsign||f.icao).trim() + '  ' + fmtTime(f.last_seen)));
+
+        const layer = L.layerGroup(layers).addTo(map);
+        activeTracks.set(f.icao, { layer, color, f, el, valid });
         fitAll();
         showInfo(f, color);
     } catch(e) {
@@ -541,38 +536,12 @@ function removeTrack(icao, el) {
 }
 
 // ── Bulk select ───────────────────────────────────────────────────────────────
-async function selectVisible() {
-    const items = [...document.querySelectorAll('.flight-item')]
-        .filter(el => el.style.display !== 'none' && !activeTracks.has(el.dataset.icao));
-    if (!items.length) return;
-
-    const payload = items.map(el => ({
-        icao:    el.dataset.icao,
-        from_ts: el.dataset.first,
-        to_ts:   el.dataset.last,
-    }));
-
-    try {
-        const bulk = await fetch('/api/history/bulk', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify(payload),
-        }).then(r => r.json());
-
-        items.forEach(el => {
-            const icao = el.dataset.icao;
-            const pts  = bulk[icao];
-            if (!pts || !pts.length) return;
-            renderTrackLayer(pts, el._flight, el, el.dataset.color);
-        });
-        fitAll();
-    } catch(e) {
-        console.error('Bulk load failed, falling back:', e);
-        items.forEach(el => {
-            const cb = el.querySelector('.fi-check');
-            if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
-        });
-    }
+function selectVisible() {
+    document.querySelectorAll('.flight-item').forEach(el => {
+        if (el.style.display === 'none') return;
+        const cb = el.querySelector('.fi-check');
+        if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+    });
 }
 
 function clearAll() {

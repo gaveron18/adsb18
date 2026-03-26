@@ -177,46 +177,6 @@ async def archive(
     return [dict(r) for r in rows]
 
 
-@app.post('/api/history/bulk')
-async def history_bulk(flights: list[dict]):
-    """Fetch tracks for multiple flights in a single DB query."""
-    if not flights:
-        return {}
-    items = []
-    for f in flights:
-        try:
-            items.append((
-                f['icao'].upper().strip(),
-                datetime.fromisoformat(f['from_ts']),
-                datetime.fromisoformat(f['to_ts']),
-            ))
-        except (KeyError, ValueError):
-            continue
-    if not items:
-        return {}
-
-    icaos  = list({i[0] for i in items})
-    t_from = min(i[1] for i in items)
-    t_to   = max(i[2] for i in items)
-
-    async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT icao, ts, lat, lon, altitude, ground_speed, track,
-                   vertical_rate, squawk, callsign, is_on_ground
-            FROM positions
-            WHERE icao = ANY($1::text[])
-              AND ts BETWEEN $2 AND $3
-              AND lat IS NOT NULL AND lon IS NOT NULL
-            ORDER BY icao, ts
-            LIMIT 200000
-        """, icaos, t_from, t_to)
-
-    result: dict[str, list] = {}
-    for r in rows:
-        result.setdefault(r['icao'], []).append(dict(r))
-    return result
-
-
 @app.delete('/api/flight')
 async def delete_flight(
     icao:    str = Query(..., description='ICAO hex'),
