@@ -107,8 +107,7 @@
         }
         .fi-body { flex: 1; min-width: 0; }
         .fi-icao { font-size: 13px; font-weight: bold; color: #4fc3f7; font-family: monospace; }
-        .fi-time { font-size: 11px; color: #888; margin-top: 4px; }
-        .fi-time-range { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+        .fi-time { font-size: 11px; color: #888; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .fi-time-sep { color: #555; }
         .fi-time-end { color: #aaa; }
 
@@ -349,7 +348,7 @@ function initDatePickers() {
 // Refresh times in already-rendered flight list (after TZ change)
 function refreshDisplayedTimes() {
     document.querySelectorAll('.flight-item[data-first]').forEach(el => {
-        const spans = el.querySelectorAll('.fi-time-range span');
+        const spans = el.querySelectorAll('.fi-time span');
         if (spans[0]) spans[0].textContent = fmtTime(el.dataset.first);
         if (spans[2]) spans[2].textContent = fmtTime(el.dataset.last);
     });
@@ -418,10 +417,8 @@ function buildFlightItem(f, container) {
         <div class="fi-color" style="background:${color}"></div>
         <div class="fi-body">
             <span class="fi-icao">${f.icao}</span>
-            <div class="fi-time fi-time-range">
-                <span>${fmtTime(f.first_seen)}</span>
-                <span class="fi-time-sep">→</span>
-                <span class="fi-time-end">${fmtTime(f.last_seen)}</span>
+            <div class="fi-time">
+                <span>${fmtTime(f.first_seen)}</span><span class="fi-time-sep"> → </span><span class="fi-time-end">${fmtTime(f.last_seen)}</span>
             </div>
         </div>
     `;
