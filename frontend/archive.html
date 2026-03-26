@@ -163,7 +163,7 @@
 <div class="main">
     <div class="sidebar">
         <div class="sidebar-header">
-            <span>Рейсов: <b id="flightCount">—</b></span>
+            <span>Рейсов: <b id="flightCount">—</b> <span id="loadProgress" style="color:#4fc3f7;display:none"></span></span>
             <div class="sidebar-actions">
                 <button class="btn btn-outline btn-sm" onclick="selectVisible()">Все</button>
                 <button class="btn btn-outline btn-sm" onclick="clearAll()">Снять</button>
@@ -488,7 +488,7 @@ async function deleteFlight(btn) {
     }
 }
 
-async function addTrack(f, el, color) {
+async function addTrack(f, el, color, skipFit = false) {
     el.classList.add('active');
     if (activeTracks.has(f.icao)) return;
 
@@ -519,8 +519,7 @@ async function addTrack(f, el, color) {
 
         const layer = L.layerGroup(layers).addTo(map);
         activeTracks.set(f.icao, { layer, color, f, el, valid });
-        fitAll();
-        showInfo(f, color);
+        if (!skipFit) { fitAll(); showInfo(f, color); }
     } catch(e) {
         el.querySelector('.fi-check').checked = false;
         el.classList.remove('active');
@@ -536,12 +535,32 @@ function removeTrack(icao, el) {
 }
 
 // ── Bulk select ───────────────────────────────────────────────────────────────
-function selectVisible() {
-    document.querySelectorAll('.flight-item').forEach(el => {
-        if (el.style.display === 'none') return;
+async function selectVisible() {
+    const items = [...document.querySelectorAll('.flight-item')]
+        .filter(el => el.style.display !== 'none' && !activeTracks.has(el.dataset.icao));
+    if (!items.length) return;
+
+    const prog = document.getElementById('loadProgress');
+    let done = 0;
+    prog.textContent = `0/${items.length}`;
+    prog.style.display = '';
+
+    await Promise.all(items.map(el => {
         const cb = el.querySelector('.fi-check');
-        if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
-    });
+        if (cb.checked) return Promise.resolve();
+        cb.checked = true;
+        // Get f and color from the change handler's closure via dataset
+        const f     = { icao: el.dataset.icao, callsign: el.dataset.callsign,
+                        first_seen: el.dataset.first, last_seen: el.dataset.last };
+        const color = el.dataset.color;
+        return addTrack(f, el, color, true).then(() => {
+            done++;
+            prog.textContent = `${done}/${items.length}`;
+        });
+    }));
+
+    prog.style.display = 'none';
+    fitAll();
 }
 
 function clearAll() {
