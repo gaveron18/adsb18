@@ -301,7 +301,7 @@ function buildTrackLayer(valid, f, color) {
         style="transform:rotate(${heading}deg);transform-origin:center;overflow:visible;
                filter:drop-shadow(0 0 3px rgba(0,0,0,1))">
         <path d="M50,3 L55,18 L58,36 L93,53 L91,61 L57,50 L60,84 L71,88 L70,94 L50,89 L30,94 L29,88 L40,84 L43,50 L9,61 L7,53 L42,36 L45,18 Z"
-              fill="${color}" stroke="white" stroke-width="4" stroke-linejoin="round"/>
+              fill="${color}" stroke="black" stroke-width="4" stroke-linejoin="round"/>
     </svg>`;
     layers.push(L.marker([last.lat, last.lon], {
         icon: L.divIcon({ className: '', html: planeSvg, iconSize: [32, 32], iconAnchor: [16, 16] }),
