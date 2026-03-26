@@ -23,7 +23,7 @@ logging.basicConfig(
     format='%(asctime)s [%(levelname)s] %(message)s',
 )
 
-PI_URL   = os.getenv('PI_AIRCRAFT_URL', 'http://127.0.0.1:30092/data/aircraft.json')
+PI_URL   = os.getenv('PI_AIRCRAFT_URL', 'http://127.0.0.1:30092/tar1090/data/aircraft.json')
 DB_DSN   = os.getenv('DATABASE_URL', 'postgresql://adsb:adsb2024@localhost:5432/adsb18')
 INTERVAL = float(os.getenv('POLL_INTERVAL', '1.0'))
 

@@ -274,17 +274,55 @@ sudo tail -20 /var/log/nginx/error.log
 
 ---
 
-## Текущее состояние (2026-03-25)
+## Текущее состояние (2026-03-26)
 
 **Работает:**
-- Pi → SSH-туннель (порт 30091) → VPS:30001 → PostgreSQL
-- Данные идут стабильно: ~50 строк / 10 сек
+- Pi → SSH-туннель (порт 30092) → VPS poller → PostgreSQL
+- Poller опрашивает aircraft.json каждую секунду
 - Веб-интерфейс открывается: http://173.249.2.184:8098
-- Самолёты отображаются на карте
+- Самолёты отображаются на карте, количество совпадает с Pi tar1090
+
+**Архитектура данных:**
+- `adsb18-poller.service` на VPS (НЕ feeder.py на Pi)
+- `adsb18-ingest.service` — disabled (не нужен)
+- `adsb18-feeder.service` на Pi — disabled (не нужен)
+- SSH-туннель: `-R 52222:localhost:22` + `-R 30092:localhost:80`
 
 **Открытые вопросы:**
-- [ ] Pi иногда накапливает > 10 000 сообщений в очереди (Queue(maxsize=10000)) — возможна потеря при переполнении
 - [ ] Рассмотреть переход на WireGuard + readsb --net-connector для более чистой архитектуры
+
+---
+
+---
+
+## Сессия 2026-03-26 (исправление расхождения количества самолётов)
+
+### ПРОБЛЕМА 12: Сервер показывал меньше самолётов чем Pi tar1090
+
+**Симптомы:**
+Pi tar1090 показывает N самолётов в таблице, сервер показывает меньше.
+
+**Причина:**
+feeder.py читал SBS-поток (порт 30003) — `sbs_parser.py` фильтрует MSG,8 (surveillance status).
+Самолёты, которые посылают ТОЛЬКО MSG,8, видны dump1090/tar1090 но не доходили до сервера.
+Pi's tar1090 читает `aircraft.json` — полный снимок состояния со ВСЕМИ бортами.
+
+**Решение:**
+Переключиться с feeder.py (SBS) на poller.py (aircraft.json):
+1. SSH-туннель на Pi: `-R 30092:localhost:80` (уже был в конфиге)
+2. URL в poller.py: `http://127.0.0.1:30092/tar1090/data/aircraft.json`
+3. Создать `adsb18-poller.service` на VPS
+4. Отключить `adsb18-feeder.service` на Pi и `adsb18-ingest.service` на VPS
+
+**Сервис на VPS:** `/etc/systemd/system/adsb18-poller.service`
+```ini
+[Service]
+WorkingDirectory=/home/new/adsb18/server/ingest
+ExecStart=/opt/adsb18-venv/bin/python poller.py
+Environment=PI_AIRCRAFT_URL=http://127.0.0.1:30092/tar1090/data/aircraft.json
+```
+
+**Результат:** количество самолётов на сервере = количество на Pi tar1090
 
 ---
 
