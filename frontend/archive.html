@@ -434,7 +434,7 @@ function buildFlightItem(f, container) {
         <input type="checkbox" class="fi-check" onclick="event.stopPropagation()">
         <div class="fi-color" style="background:${color}"></div>
         <div class="fi-body">
-            <span class="fi-icao">${f.icao}</span>
+            <span class="fi-icao">${cs !== '—' ? cs + ' · ' : ''}${f.icao}</span>
             <div class="fi-time">${fmtTimeRange(f.first_seen, f.last_seen)}</div>
         </div>
     `;
