@@ -453,8 +453,11 @@ function buildFlightItem(f, container) {
     });
 
     el.addEventListener('click', (e) => {
-        if (e.target === cb) return;
-        cb.checked = !cb.checked;
+        // Чекбокс и кнопка удаления — своя логика, не трогаем
+        if (e.target === cb || e.target.closest('.fi-del')) return;
+        // Клик на строку: снять все остальные, показать только этот
+        clearAll();
+        cb.checked = true;
         cb.dispatchEvent(new Event('change'));
         showInfo(f, color);
     });
