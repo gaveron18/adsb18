@@ -74,6 +74,13 @@
         .sidebar-header b { color: #4fc3f7; }
         .sidebar-actions { display: flex; gap: 4px; }
 
+        .dot-interval {
+            padding: 5px 10px; border-bottom: 1px solid #0f3460; flex-shrink: 0;
+            display: flex; align-items: center; gap: 8px; font-size: 11px; color: #888;
+        }
+        .dot-interval input[type=range] { flex: 1; accent-color: #4fc3f7; }
+        .dot-interval span { color: #4fc3f7; min-width: 36px; text-align: right; }
+
         .search-box {
             padding: 6px 8px; border-bottom: 1px solid #0f3460; flex-shrink: 0;
         }
@@ -169,6 +176,11 @@
                 <button class="btn btn-outline btn-sm" onclick="clearAll()">Снять</button>
             </div>
         </div>
+        <div class="dot-interval">
+            Точки каждые:
+            <input type="range" id="dotIntervalSlider" min="1" max="5" value="2" oninput="onDotIntervalChange()">
+            <span id="dotIntervalLabel">2 сек</span>
+        </div>
         <div class="search-box">
             <input type="text" id="searchInput" placeholder="Поиск по рейсу или ICAO…" oninput="filterFlights()">
         </div>
@@ -221,6 +233,50 @@ function nextColor() { return COLORS[colorIdx++ % COLORS.length]; }
 // ── State ─────────────────────────────────────────────────────────────────────
 // activeTracks: icao → { layer, color, f, el }
 const activeTracks = new Map();
+let dotInterval = 2; // seconds between waypoint dots
+
+function samplePoints(valid, intervalSecs) {
+    if (!valid.length) return [];
+    const ms = intervalSecs * 1000;
+    const result = [valid[0]];
+    let lastTs = new Date(valid[0].ts).getTime();
+    for (let i = 1; i < valid.length - 1; i++) {
+        const ts = new Date(valid[i].ts).getTime();
+        if (ts - lastTs >= ms) { result.push(valid[i]); lastTs = ts; }
+    }
+    if (valid.length > 1) result.push(valid[valid.length - 1]);
+    return result;
+}
+
+function buildTrackLayer(valid, f, color) {
+    const cs = (f.callsign || f.icao).trim();
+    const layers = [];
+    layers.push(L.polyline(valid.map(p => [p.lat, p.lon]), { color, weight: 3, opacity: 0.85 }));
+    samplePoints(valid, dotInterval).forEach(p => {
+        const alt = p.altitude     ? ft2m(p.altitude)          : '—';
+        const spd = p.ground_speed ? p.ground_speed + ' уз'    : '—';
+        layers.push(L.circleMarker([p.lat, p.lon], {
+            radius: 3, color, fillColor: color, weight: 1, fillOpacity: 0.8,
+        }).bindTooltip(`<b>${cs}</b><br>⏱ ${fmtTime(p.ts)}<br>↑ ${alt} &nbsp;➤ ${spd}`));
+    });
+    layers.push(L.circleMarker([valid[0].lat, valid[0].lon], {
+        radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1,
+    }).bindTooltip(`<b>${cs}</b><br>▶ ${fmtTime(f.first_seen)}`));
+    const last = valid[valid.length - 1];
+    layers.push(L.circleMarker([last.lat, last.lon], {
+        radius: 6, fillColor: '#ff3300', color, weight: 2, fillOpacity: 1,
+    }).bindTooltip(`<b>${cs}</b><br>■ ${fmtTime(f.last_seen)}`));
+    return L.layerGroup(layers);
+}
+
+function onDotIntervalChange() {
+    dotInterval = parseInt(document.getElementById('dotIntervalSlider').value);
+    document.getElementById('dotIntervalLabel').textContent = dotInterval + ' сек';
+    activeTracks.forEach(t => {
+        map.removeLayer(t.layer);
+        t.layer = buildTrackLayer(t.valid, t.f, t.color).addTo(map);
+    });
+}
 let allFlights = [];
 
 // ── Timezone ──────────────────────────────────────────────────────────────────
@@ -498,32 +554,7 @@ async function addTrack(f, el, color, skipFit = false) {
         const valid = pts.filter(p => p.lat != null && p.lon != null);
         if (!valid.length) { el.querySelector('.fi-check').checked = false; el.classList.remove('active'); return; }
 
-        const cs = (f.callsign || f.icao).trim();
-        const layers = [];
-
-        // Track line
-        layers.push(L.polyline(valid.map(p => [p.lat, p.lon]), { color, weight: 3, opacity: 0.85 }));
-
-        // Waypoint dots for every point
-        valid.forEach(p => {
-            const alt = p.altitude  ? ft2m(p.altitude)         : '—';
-            const spd = p.ground_speed ? p.ground_speed + ' уз' : '—';
-            const tip = `<b>${cs}</b><br>⏱ ${fmtTime(p.ts)}<br>↑ ${alt} &nbsp;➤ ${spd}`;
-            layers.push(L.circleMarker([p.lat, p.lon], {
-                radius: 3, color, fillColor: color, weight: 1, fillOpacity: 0.8,
-            }).bindTooltip(tip, { sticky: false }));
-        });
-
-        // Start / end markers (on top)
-        layers.push(L.circleMarker([valid[0].lat, valid[0].lon], {
-            radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1,
-        }).bindTooltip(`<b>${cs}</b><br>▶ ${fmtTime(f.first_seen)}`));
-        const last = valid[valid.length - 1];
-        layers.push(L.circleMarker([last.lat, last.lon], {
-            radius: 6, fillColor: '#ff3300', color, weight: 2, fillOpacity: 1,
-        }).bindTooltip(`<b>${cs}</b><br>■ ${fmtTime(f.last_seen)}`));
-
-        const layer = L.layerGroup(layers).addTo(map);
+        const layer = buildTrackLayer(valid, f, color).addTo(map);
         activeTracks.set(f.icao, { layer, color, f, el, valid });
         if (!skipFit) { fitAll(); showInfo(f, color); }
     } catch(e) {
