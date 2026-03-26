@@ -315,19 +315,18 @@ function fmtTime(iso) {
 }
 
 // Диапазон: "26.03 12:32 → 12:49" (конечная дата только если отличается)
+// Список рейсов всегда в UTC
 function fmtTimeRange(isoFrom, isoTo) {
     if (!isoFrom) return '—';
-    const from = new Date(new Date(isoFrom).getTime() + tzOffsetMs);
-    const to   = isoTo ? new Date(new Date(isoTo).getTime() + tzOffsetMs) : null;
-    const fs = from.toISOString();
+    const fs = new Date(isoFrom).toISOString();
     const dayFrom  = fs.slice(8, 10) + '.' + fs.slice(5, 7);
     const timeFrom = fs.slice(11, 16);
-    if (!to) return dayFrom + ' ' + timeFrom;
-    const ts = to.toISOString();
+    if (!isoTo) return dayFrom + ' ' + timeFrom + ' UTC';
+    const ts = new Date(isoTo).toISOString();
     const dayTo  = ts.slice(8, 10) + '.' + ts.slice(5, 7);
     const timeTo = ts.slice(11, 16);
     const end = dayFrom === dayTo ? timeTo : dayTo + ' ' + timeTo;
-    return dayFrom + ' ' + timeFrom + ' → ' + end;
+    return dayFrom + ' ' + timeFrom + ' → ' + end + ' UTC';
 }
 
 // datetime-local input value → UTC ISO (input is in selected TZ)
