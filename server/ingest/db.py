@@ -5,6 +5,7 @@ Supports multiple feeders via feeder_id.
 """
 import asyncio
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Optional
 import asyncpg
@@ -15,6 +16,38 @@ log = logging.getLogger(__name__)
 
 # Per-ICAO live state (merges multiple SBS message types)
 _state: dict[str, dict] = {}
+
+# Last validated position per ICAO — used for ghost position filtering
+_last_valid_pos: dict[str, tuple] = {}  # icao → (lat, lon, ts)
+MAX_SPEED_KTS = 800  # above this speed the position jump is physically impossible
+
+
+def _valid_position(icao: str, lat: float, lon: float, ts: datetime) -> bool:
+    """Return False if the position jump from the last known fix is impossible."""
+    prev = _last_valid_pos.get(icao)
+    if prev is None:
+        _last_valid_pos[icao] = (lat, lon, ts)
+        return True
+    prev_lat, prev_lon, prev_ts = prev
+    dt = (ts - prev_ts).total_seconds()
+    if dt <= 0:
+        return True
+    dlat = math.radians(lat - prev_lat)
+    dlon = math.radians(lon - prev_lon)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(prev_lat)) * math.cos(math.radians(lat))
+         * math.sin(dlon / 2) ** 2)
+    dist_km = 2 * 6371.0 * math.asin(math.sqrt(max(0.0, a)))
+    speed_kts = (dist_km / 1.852) / (dt / 3600.0)
+    if speed_kts > MAX_SPEED_KTS:
+        log.warning(
+            f'{icao}: ghost position rejected '
+            f'({prev_lat:.3f},{prev_lon:.3f})→({lat:.3f},{lon:.3f}) '
+            f'{dist_km:.0f}km in {dt:.1f}s = {speed_kts:.0f}kts'
+        )
+        return False
+    _last_valid_pos[icao] = (lat, lon, ts)
+    return True
 
 # Write buffer
 _batch: list[tuple] = []
@@ -36,8 +69,14 @@ def _merge(icao: str, msg: SBSMessage, feeder_id: Optional[int]) -> dict:
     if msg.altitude      is not None: s['altitude']      = msg.altitude
     if msg.ground_speed  is not None: s['ground_speed']  = msg.ground_speed
     if msg.track         is not None: s['track']         = msg.track
-    if msg.lat           is not None: s['lat']           = msg.lat
-    if msg.lon           is not None: s['lon']           = msg.lon
+    if msg.lat is not None and msg.lon is not None:
+        if _valid_position(icao, msg.lat, msg.lon, msg.ts):
+            s['lat'] = msg.lat
+            s['lon'] = msg.lon
+        else:
+            # Ghost position — clear lat/lon so it doesn't pollute the track
+            s.pop('lat', None)
+            s.pop('lon', None)
     if msg.vertical_rate is not None: s['vertical_rate'] = msg.vertical_rate
     if msg.squawk        is not None: s['squawk']        = msg.squawk
     s['is_on_ground'] = msg.is_on_ground
@@ -196,8 +235,14 @@ def process_snapshot(data: dict, feeder_id: Optional[int] = None) -> int:
         if altitude   is not None: s['altitude']      = altitude
         if ground_speed is not None: s['ground_speed'] = ground_speed
         if track      is not None: s['track']         = track
-        if lat        is not None: s['lat']            = lat
-        if lon        is not None: s['lon']            = lon
+        if lat is not None and lon is not None:
+            if _valid_position(icao, lat, lon, pos_ts):
+                s['lat'] = lat
+                s['lon'] = lon
+            else:
+                s.pop('lat', None)
+                s.pop('lon', None)
+                lat, lon = None, None  # don't store in batch either
         if vertical_rate is not None: s['vertical_rate'] = vertical_rate
         if squawk     is not None: s['squawk']         = squawk
         s['is_on_ground'] = is_on_ground
