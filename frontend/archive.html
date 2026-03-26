@@ -40,6 +40,9 @@
             background: transparent; border: 1px solid #4fc3f7; color: #4fc3f7;
         }
         .btn-outline:hover { background: #0f3460; }
+        .btn-sm {
+            padding: 3px 8px; font-size: 11px; border-radius: 3px;
+        }
 
         .main { display: flex; flex: 1; overflow: hidden; }
 
@@ -49,25 +52,47 @@
             flex-direction: column; overflow: hidden;
         }
         .sidebar-header {
-            padding: 8px 12px; background: #0f3460; font-size: 12px;
+            padding: 6px 10px; background: #0f3460; font-size: 12px;
             color: #aaa; display: flex; justify-content: space-between;
-            align-items: center; flex-shrink: 0;
+            align-items: center; flex-shrink: 0; gap: 6px;
         }
         .sidebar-header b { color: #4fc3f7; }
+        .sidebar-actions { display: flex; gap: 4px; }
+
+        .search-box {
+            padding: 6px 8px; border-bottom: 1px solid #0f3460; flex-shrink: 0;
+        }
+        .search-box input {
+            width: 100%; background: #0f3460; border: 1px solid #1a4a7a;
+            color: #e0e0e0; border-radius: 4px; padding: 5px 8px;
+            font-size: 12px; outline: none;
+        }
+        .search-box input:focus { border-color: #4fc3f7; }
 
         .flight-list { flex: 1; overflow-y: auto; }
         .flight-list::-webkit-scrollbar { width: 4px; }
         .flight-list::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 2px; }
 
         .flight-item {
-            padding: 9px 12px; border-bottom: 1px solid #0f3460;
+            padding: 8px 10px; border-bottom: 1px solid #0f3460;
             cursor: pointer; transition: background 0.1s;
+            display: flex; align-items: flex-start; gap: 8px;
         }
         .flight-item:hover { background: #1a2e4a; }
-        .flight-item.active { background: #1a3a5e; border-left: 3px solid #4fc3f7; padding-left: 9px; }
+        .flight-item.active { background: #1a3a5e; }
 
+        .fi-check {
+            margin-top: 3px; flex-shrink: 0;
+            width: 14px; height: 14px; cursor: pointer;
+            accent-color: #4fc3f7;
+        }
+        .fi-color {
+            width: 4px; border-radius: 2px; align-self: stretch;
+            flex-shrink: 0; min-height: 40px;
+        }
+        .fi-body { flex: 1; min-width: 0; }
         .fi-top { display: flex; justify-content: space-between; align-items: baseline; }
-        .fi-callsign { font-size: 15px; font-weight: bold; color: #4fc3f7; }
+        .fi-callsign { font-size: 14px; font-weight: bold; color: #4fc3f7; }
         .fi-icao { font-size: 11px; color: #666; font-family: monospace; }
         .fi-meta { font-size: 11px; color: #777; margin-top: 3px; display: flex; gap: 10px; }
         .fi-meta b { color: #aaa; }
@@ -82,33 +107,12 @@
             border-radius: 6px; padding: 12px 14px; min-width: 210px;
             font-size: 12px; display: none; box-shadow: 0 2px 12px rgba(0,0,0,0.5);
         }
-        .info-panel h3 { color: #4fc3f7; font-size: 15px; margin-bottom: 8px; }
+        .info-panel h3 { font-size: 15px; margin-bottom: 8px; }
         .info-panel table { width: 100%; border-collapse: collapse; }
         .info-panel td { padding: 3px 0; }
         .info-panel td:first-child { color: #666; width: 100px; }
         .info-panel td:last-child { color: #ddd; font-weight: bold; }
 
-        .legend {
-            position: absolute; bottom: 30px; right: 10px; z-index: 1000;
-            background: rgba(22,33,62,0.9); border: 1px solid #0f3460;
-            border-radius: 4px; padding: 8px 12px; font-size: 11px;
-        }
-        .legend-bar {
-            width: 120px; height: 8px; border-radius: 4px;
-            background: linear-gradient(to right, #00cc50, #ffcc00, #ff3300);
-            margin: 4px 0;
-        }
-        .legend-labels { display: flex; justify-content: space-between; color: #888; }
-
-        .search-box {
-            padding: 6px 8px; border-bottom: 1px solid #0f3460; flex-shrink: 0;
-        }
-        .search-box input {
-            width: 100%; background: #0f3460; border: 1px solid #1a4a7a;
-            color: #e0e0e0; border-radius: 4px; padding: 5px 8px;
-            font-size: 12px; outline: none;
-        }
-        .search-box input:focus { border-color: #4fc3f7; }
         .empty { padding: 24px 12px; text-align: center; color: #555; font-size: 13px; line-height: 1.8; }
         .loading { color: #4fc3f7 !important; }
 
@@ -129,14 +133,17 @@
         <label>По</label>
         <input type="datetime-local" id="toDt">
         <button class="btn" onclick="loadArchive()">Загрузить</button>
-        <button class="btn btn-outline" onclick="clearTrack()">Очистить</button>
     </div>
 </div>
 
 <div class="main">
     <div class="sidebar">
         <div class="sidebar-header">
-            Рейсов: <b id="flightCount">—</b>
+            <span>Рейсов: <b id="flightCount">—</b></span>
+            <div class="sidebar-actions">
+                <button class="btn btn-outline btn-sm" onclick="selectVisible()">Все</button>
+                <button class="btn btn-outline btn-sm" onclick="clearAll()">Снять</button>
+            </div>
         </div>
         <div class="search-box">
             <input type="text" id="searchInput" placeholder="Поиск по рейсу или ICAO…" oninput="filterFlights()">
@@ -150,7 +157,7 @@
         <div id="map"></div>
 
         <div class="info-panel" id="infoPanel">
-            <h3 id="ipCallsign">—</h3>
+            <h3 id="ipCallsign" style="color:#4fc3f7">—</h3>
             <table>
                 <tr><td>ICAO</td><td id="ipIcao">—</td></tr>
                 <tr><td>Начало</td><td id="ipFrom">—</td></tr>
@@ -161,59 +168,57 @@
                 <tr><td>Макс. скорость</td><td id="ipSpd">—</td></tr>
             </table>
         </div>
-
-        <div class="legend" id="legend" style="display:none">
-            <div style="color:#aaa;margin-bottom:4px">Высота</div>
-            <div class="legend-bar"></div>
-            <div class="legend-labels"><span>Низко</span><span>Высоко</span></div>
-        </div>
     </div>
 </div>
 
 <script src="libs/leaflet/leaflet.js"></script>
 <script>
-// ── Fix leaflet icon paths ────────────────────────────────────────────────────
+// ── Map ───────────────────────────────────────────────────────────────────────
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
-    iconUrl:       'libs/leaflet/marker-icon.png',
-    shadowUrl:     'libs/leaflet/marker-shadow.png',
+    iconUrl: 'libs/leaflet/marker-icon.png', shadowUrl: 'libs/leaflet/marker-shadow.png',
     iconRetinaUrl: 'libs/leaflet/marker-icon.png',
 });
 
-// ── Map ───────────────────────────────────────────────────────────────────────
 const map = L.map('map').setView([57.914, 56.218], 8);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap', maxZoom: 18
 }).addTo(map);
 
-let trackGroup = null;
-let activeEl   = null;
+// ── Track colors ──────────────────────────────────────────────────────────────
+const COLORS = [
+    '#4fc3f7','#ff6b6b','#51cf66','#ffd43b','#cc5de8',
+    '#ff922b','#20c997','#f06595','#74c0fc','#a9e34b',
+    '#f783ac','#63e6be','#ffa94d','#e599f7','#66d9e8',
+];
+let colorIdx = 0;
+function nextColor() { return COLORS[colorIdx++ % COLORS.length]; }
+
+// ── State ─────────────────────────────────────────────────────────────────────
+// activeTracks: icao → { layer, color, f, el }
+const activeTracks = new Map();
+let allFlights = [];
 
 // ── Date pickers: last 24h ────────────────────────────────────────────────────
 (function() {
     const now  = new Date();
     const from = new Date(now - 24 * 3600 * 1000);
-    const fmt  = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-                          .toISOString().slice(0, 16);
+    const fmt  = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     document.getElementById('fromDt').value = fmt(from);
     document.getElementById('toDt').value   = fmt(now);
 })();
 
 function toUTC(s) { return s ? new Date(s).toISOString() : ''; }
-
 function fmtUTC(iso) {
     if (!iso) return '—';
-    const d = new Date(iso);
-    return d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+    return new Date(iso).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 }
-
 function fmtDur(a, b) {
     const ms = new Date(b) - new Date(a);
     const h  = Math.floor(ms / 3600000);
     const m  = Math.floor((ms % 3600000) / 60000);
     return h > 0 ? `${h}ч ${m}м` : `${m}м`;
 }
-
 function ft2m(ft) { return ft ? Math.round(ft / 3.281) + ' м' : '—'; }
 
 // ── Load flight list ──────────────────────────────────────────────────────────
@@ -222,131 +227,168 @@ async function loadArchive() {
     const to   = toUTC(document.getElementById('toDt').value);
     if (!from || !to) { alert('Выберите период'); return; }
 
-    clearTrack();
+    clearAll();
+    colorIdx = 0;
+    allFlights = [];
+
     const list = document.getElementById('flightList');
     list.innerHTML = '<div class="empty loading">⏳ Загрузка...</div>';
     document.getElementById('flightCount').textContent = '...';
 
     try {
         const r = await fetch(`/api/archive?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-        const flights = await r.json();
-        document.getElementById('flightCount').textContent = flights.length;
+        allFlights = await r.json();
+        document.getElementById('flightCount').textContent = allFlights.length;
+        document.getElementById('searchInput').value = '';
 
-        if (!flights.length) {
+        if (!allFlights.length) {
             list.innerHTML = '<div class="empty">Нет данных за выбранный период</div>';
             return;
         }
 
         list.innerHTML = '';
-        document.getElementById('searchInput').value = '';
-        flights.forEach(f => {
-            const el  = document.createElement('div');
-            el.className = 'flight-item';
-            el.dataset.callsign = (f.callsign || '').trim().toUpperCase();
-            el.dataset.icao     = (f.icao || '').toUpperCase();
-            const cs  = (f.callsign || '').trim() || '—';
-            const alt = ft2m(f.max_altitude);
-            const spd = f.max_speed ? f.max_speed + ' уз' : '—';
-            el.innerHTML = `
-                <div class="fi-top">
-                    <span class="fi-callsign">${cs}</span>
-                    <span class="fi-icao">${f.icao}</span>
-                </div>
-                <div class="fi-meta">
-                    <span>⏱ <b>${fmtDur(f.first_seen, f.last_seen)}</b></span>
-                    <span>📍 <b>${f.points}</b></span>
-                    <span>↑ <b>${alt}</b></span>
-                </div>
-                <div class="fi-time">${fmtUTC(f.first_seen)}</div>
-            `;
-            el.onclick = () => showTrack(el, f);
-            list.appendChild(el);
-        });
+        allFlights.forEach(f => buildFlightItem(f, list));
     } catch(e) {
         list.innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`;
     }
 }
 
-// ── Show track on map ─────────────────────────────────────────────────────────
-async function showTrack(el, f) {
-    if (activeEl) activeEl.classList.remove('active');
-    activeEl = el;
+function buildFlightItem(f, container) {
+    const color = nextColor();
+    const el    = document.createElement('div');
+    el.className = 'flight-item';
+    el.dataset.callsign = (f.callsign || '').trim().toUpperCase();
+    el.dataset.icao     = (f.icao || '').toUpperCase();
+    el.dataset.color    = color;
+
+    const cs  = (f.callsign || '').trim() || '—';
+    const alt = ft2m(f.max_altitude);
+    const spd = f.max_speed ? f.max_speed + ' уз' : '—';
+
+    el.innerHTML = `
+        <input type="checkbox" class="fi-check" onclick="event.stopPropagation()">
+        <div class="fi-color" style="background:${color}"></div>
+        <div class="fi-body">
+            <div class="fi-top">
+                <span class="fi-callsign">${cs}</span>
+                <span class="fi-icao">${f.icao}</span>
+            </div>
+            <div class="fi-meta">
+                <span>⏱ <b>${fmtDur(f.first_seen, f.last_seen)}</b></span>
+                <span>📍 <b>${f.points}</b></span>
+                <span>↑ <b>${alt}</b></span>
+            </div>
+            <div class="fi-time">${fmtUTC(f.first_seen)}</div>
+        </div>
+    `;
+
+    const cb = el.querySelector('.fi-check');
+    cb.addEventListener('change', () => {
+        if (cb.checked) addTrack(f, el, color);
+        else            removeTrack(f.icao, el);
+    });
+
+    el.addEventListener('click', (e) => {
+        if (e.target === cb) return;
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event('change'));
+        showInfo(f, color);
+    });
+
+    container.appendChild(el);
+}
+
+// ── Add / Remove track ────────────────────────────────────────────────────────
+async function addTrack(f, el, color) {
     el.classList.add('active');
-    clearTrack();
+    if (activeTracks.has(f.icao)) return;
 
     try {
         const url = `/api/history?icao=${f.icao}&from=${encodeURIComponent(f.first_seen)}&to=${encodeURIComponent(f.last_seen)}&limit=10000`;
-        const r   = await fetch(url);
-        const pts = await r.json();
-
+        const pts = await fetch(url).then(r => r.json());
         const valid = pts.filter(p => p.lat != null && p.lon != null);
-        if (!valid.length) {
-            alert('Нет координат для этого рейса');
-            return;
-        }
-
-        // Altitude range for color gradient
-        const alts = valid.map(p => p.altitude || 0);
-        const minA = Math.min(...alts);
-        const maxA = Math.max(...alts) || 1;
-
-        function altColor(alt) {
-            const t = (alt - minA) / (maxA - minA);
-            const r = Math.round(255 * Math.min(1, t * 2));
-            const g = Math.round(255 * Math.min(1, (1 - t) * 2));
-            return `rgb(${r},${g},50)`;
-        }
+        if (!valid.length) { el.querySelector('.fi-check').checked = false; el.classList.remove('active'); return; }
 
         const layers = [];
-
-        // Polyline segments colored by altitude
         for (let i = 1; i < valid.length; i++) {
             const p0 = valid[i - 1], p1 = valid[i];
             const seg = L.polyline([[p0.lat, p0.lon], [p1.lat, p1.lon]], {
-                color:   altColor(p1.altitude || 0),
-                weight:  3,
-                opacity: 0.9,
+                color, weight: 3, opacity: 0.9,
             });
             const alt = p1.altitude ? ft2m(p1.altitude) : '—';
             const spd = p1.ground_speed ? p1.ground_speed + ' уз' : '—';
-            seg.bindTooltip(`↑ ${alt}  ➤ ${spd}`, { sticky: true });
+            seg.bindTooltip(`${(f.callsign||f.icao).trim()}  ↑ ${alt}  ➤ ${spd}`, { sticky: true });
             layers.push(seg);
         }
-
-        // Start marker (green circle)
         layers.push(L.circleMarker([valid[0].lat, valid[0].lon], {
-            radius: 7, fillColor: '#00cc50', color: '#fff',
-            weight: 2, fillOpacity: 1
-        }).bindTooltip('▶ Начало  ' + fmtUTC(f.first_seen)));
-
-        // End marker (red circle)
+            radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1
+        }).bindTooltip('▶ ' + (f.callsign||f.icao).trim() + '  ' + fmtUTC(f.first_seen)));
         const last = valid[valid.length - 1];
         layers.push(L.circleMarker([last.lat, last.lon], {
-            radius: 7, fillColor: '#ff3300', color: '#fff',
-            weight: 2, fillOpacity: 1
-        }).bindTooltip('■ Конец  ' + fmtUTC(f.last_seen)));
+            radius: 6, fillColor: '#ff3300', color, weight: 2, fillOpacity: 1
+        }).bindTooltip('■ ' + (f.callsign||f.icao).trim() + '  ' + fmtUTC(f.last_seen)));
 
-        trackGroup = L.layerGroup(layers).addTo(map);
-        map.fitBounds(L.latLngBounds(valid.map(p => [p.lat, p.lon])), { padding: [50, 50] });
-
-        // Info panel
-        const cs = (f.callsign || '').trim() || f.icao;
-        document.getElementById('ipCallsign').textContent = cs;
-        document.getElementById('ipIcao').textContent     = f.icao;
-        document.getElementById('ipFrom').textContent     = fmtUTC(f.first_seen);
-        document.getElementById('ipTo').textContent       = fmtUTC(f.last_seen);
-        document.getElementById('ipDur').textContent      = fmtDur(f.first_seen, f.last_seen);
-        document.getElementById('ipPts').textContent      = valid.length;
-        document.getElementById('ipAlt').textContent      = ft2m(f.max_altitude);
-        document.getElementById('ipSpd').textContent      = f.max_speed ? f.max_speed + ' уз' : '—';
-        document.getElementById('infoPanel').style.display = 'block';
-        document.getElementById('legend').style.display    = 'block';
-
+        const layer = L.layerGroup(layers).addTo(map);
+        activeTracks.set(f.icao, { layer, color, f, el, valid });
+        fitAll();
+        showInfo(f, color);
     } catch(e) {
-        alert('Ошибка загрузки трека: ' + e.message);
+        el.querySelector('.fi-check').checked = false;
+        el.classList.remove('active');
     }
 }
 
+function removeTrack(icao, el) {
+    const t = activeTracks.get(icao);
+    if (t) { map.removeLayer(t.layer); activeTracks.delete(icao); }
+    if (el) { el.classList.remove('active'); el.querySelector('.fi-check').checked = false; }
+    if (activeTracks.size === 0) document.getElementById('infoPanel').style.display = 'none';
+    else fitAll();
+}
+
+// ── Bulk select ───────────────────────────────────────────────────────────────
+function selectVisible() {
+    document.querySelectorAll('.flight-item').forEach(el => {
+        if (el.style.display === 'none') return;
+        const cb = el.querySelector('.fi-check');
+        if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+    });
+}
+
+function clearAll() {
+    activeTracks.forEach(t => map.removeLayer(t.layer));
+    activeTracks.clear();
+    document.querySelectorAll('.flight-item').forEach(el => {
+        el.classList.remove('active');
+        const cb = el.querySelector('.fi-check');
+        if (cb) cb.checked = false;
+    });
+    document.getElementById('infoPanel').style.display = 'none';
+}
+
+// ── Fit map to all active tracks ──────────────────────────────────────────────
+function fitAll() {
+    const all = [];
+    activeTracks.forEach(t => t.valid.forEach(p => all.push([p.lat, p.lon])));
+    if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [50, 50] });
+}
+
+// ── Info panel ────────────────────────────────────────────────────────────────
+function showInfo(f, color) {
+    const cs = (f.callsign || '').trim() || f.icao;
+    document.getElementById('ipCallsign').textContent = cs;
+    document.getElementById('ipCallsign').style.color = color;
+    document.getElementById('ipIcao').textContent     = f.icao;
+    document.getElementById('ipFrom').textContent     = fmtUTC(f.first_seen);
+    document.getElementById('ipTo').textContent       = fmtUTC(f.last_seen);
+    document.getElementById('ipDur').textContent      = fmtDur(f.first_seen, f.last_seen);
+    document.getElementById('ipPts').textContent      = f.points;
+    document.getElementById('ipAlt').textContent      = ft2m(f.max_altitude);
+    document.getElementById('ipSpd').textContent      = f.max_speed ? f.max_speed + ' уз' : '—';
+    document.getElementById('infoPanel').style.display = 'block';
+}
+
+// ── Search filter ─────────────────────────────────────────────────────────────
 function filterFlights() {
     const q = document.getElementById('searchInput').value.trim().toUpperCase();
     const items = document.querySelectorAll('.flight-item');
@@ -356,14 +398,8 @@ function filterFlights() {
         el.style.display = match ? '' : 'none';
         if (match) visible++;
     });
-    document.getElementById('flightCount').textContent = q ? `${visible} / ${items.length}` : items.length;
-}
-
-function clearTrack() {
-    if (trackGroup) { map.removeLayer(trackGroup); trackGroup = null; }
-    document.getElementById('infoPanel').style.display = 'none';
-    document.getElementById('legend').style.display    = 'none';
-    if (activeEl) { activeEl.classList.remove('active'); activeEl = null; }
+    document.getElementById('flightCount').textContent =
+        q ? `${visible} / ${items.length}` : items.length;
 }
 </script>
 </body>
