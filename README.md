@@ -16,7 +16,7 @@
 - **WebSocket** для обновления карты в реальном времени
 - Автоматическое партиционирование БД по месяцам
 - **Disk buffer на Pi** — при обрыве связи данные пишутся на диск (до 200 МБ), после восстановления автоматически досылаются на сервер
-- Деплой одной командой через **Docker Compose**
+- Деплой одной командой через **deploy.sh** (systemd, без Docker)
 
 ---
 
@@ -56,7 +56,7 @@
 | Ingest | Python 3.12, asyncio (TCP сервер) |
 | База данных | PostgreSQL 16, партиционирование по месяцам |
 | Веб-сервер | nginx |
-| Деплой | Docker Compose |
+| Деплой | systemd (deploy.sh) |
 | Feeder (Pi) | Python 3.12, stdlib (без зависимостей) |
 
 ---
@@ -65,15 +65,22 @@
 
 ```
 adsb18/
-├── docker-compose.yml       # запуск всего стека
+├── deploy.sh                # деплой VPS с нуля (systemd)
+├── docker-compose.yml       # только для справки, НЕ использовать на проде
 ├── nginx.conf               # раздача фронтенда + проксирование API
 ├── .env.example             # шаблон переменных окружения
 │
-├── frontend/                # веб-интерфейс (tar1090, скопирован)
+├── frontend/                # веб-интерфейс (tar1090, OpenLayers)
 │
 ├── feeder/
 │   ├── feeder.py            # скрипт для Raspberry Pi
-│   └── install.sh           # установка как systemd-сервис
+│   ├── feeder_json.py       # альтернативный фидер (JSON формат)
+│   ├── install.sh           # установка Pi с нуля (systemd)
+│   ├── update_pi.sh         # обновление feeder.py на Pi
+│   ├── adsb-tunnel.service  # шаблон сервиса SSH-туннеля
+│   ├── adsb18-feeder.service # шаблон сервиса фидера
+│   ├── simulator.py         # симулятор ADS-B данных для тестов
+│   └── requirements.txt
 │
 └── server/
     ├── db/
@@ -89,31 +96,61 @@ adsb18/
 
 ---
 
-## Быстрый старт
+## Деплой
 
-### Сервер
+### 1. Новый VPS (Ubuntu/Debian)
 
 ```bash
+# Клонировать репозиторий и запустить deploy.sh от root
 git clone https://github.com/gaveron18/adsb18.git
 cd adsb18
-cp .env.example .env          # задайте пароль POSTGRES_PASSWORD
-docker-compose up -d
+sudo bash deploy.sh
 ```
 
-Открыть карту: **http://<IP>:8098**
+Скрипт автоматически:
+- установит PostgreSQL, nginx, Python virtualenv
+- создаст БД и схему
+- установит и запустит сервисы через systemd (`adsb18-ingest`, `adsb18-api`)
+- настроит nginx и UFW
 
-### Raspberry Pi (feeder)
+Открыть карту: **http://&lt;IP&gt;:8098**
+
+### 2. Raspberry Pi (feeder)
+
+Требования: `dump1090` или `readsb` запущен на Pi (порт 30003).
 
 ```bash
-# Требования: dump1090 или readsb запущен на Pi
-git clone https://github.com/gaveron18/adsb18.git
-cd adsb18/feeder
-sudo bash install.sh --server <IP сервера> --name perm-pi1
+# Скопировать папку feeder с VPS на Pi
+scp -r user@<IP_VPS>:~/adsb18/feeder /tmp/adsb18-feeder
+
+# Установить на Pi
+sudo bash /tmp/adsb18-feeder/install.sh \
+  --vps-ip <IP_VPS> \
+  --vps-user <user> \
+  --name имя-пи
 ```
 
-Feeder автоматически запускается при старте Pi и переподключается при обрыве связи.
+Скрипт создаст пользователя `ads-b`, сгенерирует SSH-ключ и установит сервисы.
+После установки добавить публичный ключ Pi на VPS:
+
+```bash
+# На Pi:
+cat /home/ads-b/.ssh/id_adsb_vps.pub
+
+# На VPS:
+echo 'ПУБЛИЧНЫЙ_КЛЮЧ' >> ~/.ssh/authorized_keys
+```
+
+Feeder автоматически запускается при старте Pi, соединяется через SSH-туннель и переподключается при обрыве.
 При потере соединения данные буферизуются на диске (`/opt/adsb18-feeder/feeder_buffer.sbs`, до 200 МБ)
 и автоматически досылаются на сервер после восстановления — без пропусков в истории.
+
+### 3. Обновление feeder.py на Pi
+
+```bash
+# С VPS:
+bash ~/adsb18/feeder/update_pi.sh
+```
 
 ---
 
