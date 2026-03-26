@@ -308,7 +308,26 @@ function removeCustomTZ() {
 function fmtTime(iso) {
     if (!iso) return '—';
     const d = new Date(new Date(iso).getTime() + tzOffsetMs);
-    return d.toISOString().slice(0, 16).replace('T', ' ') + ' ' + tzLabel;
+    const s = d.toISOString();
+    const day  = s.slice(8, 10) + '.' + s.slice(5, 7); // DD.MM
+    const time = s.slice(11, 16);                        // HH:MM
+    return day + ' ' + time;
+}
+
+// Диапазон: "26.03 12:32 → 12:49" (конечная дата только если отличается)
+function fmtTimeRange(isoFrom, isoTo) {
+    if (!isoFrom) return '—';
+    const from = new Date(new Date(isoFrom).getTime() + tzOffsetMs);
+    const to   = isoTo ? new Date(new Date(isoTo).getTime() + tzOffsetMs) : null;
+    const fs = from.toISOString();
+    const dayFrom  = fs.slice(8, 10) + '.' + fs.slice(5, 7);
+    const timeFrom = fs.slice(11, 16);
+    if (!to) return dayFrom + ' ' + timeFrom;
+    const ts = to.toISOString();
+    const dayTo  = ts.slice(8, 10) + '.' + ts.slice(5, 7);
+    const timeTo = ts.slice(11, 16);
+    const end = dayFrom === dayTo ? timeTo : dayTo + ' ' + timeTo;
+    return dayFrom + ' ' + timeFrom + ' → ' + end;
 }
 
 // datetime-local input value → UTC ISO (input is in selected TZ)
@@ -348,9 +367,8 @@ function initDatePickers() {
 // Refresh times in already-rendered flight list (after TZ change)
 function refreshDisplayedTimes() {
     document.querySelectorAll('.flight-item[data-first]').forEach(el => {
-        const spans = el.querySelectorAll('.fi-time span');
-        if (spans[0]) spans[0].textContent = fmtTime(el.dataset.first);
-        if (spans[2]) spans[2].textContent = fmtTime(el.dataset.last);
+        const timeEl = el.querySelector('.fi-time');
+        if (timeEl) timeEl.textContent = fmtTimeRange(el.dataset.first, el.dataset.last);
     });
     // Refresh info panel if visible
     if (document.getElementById('infoPanel').style.display !== 'none') {
@@ -417,9 +435,7 @@ function buildFlightItem(f, container) {
         <div class="fi-color" style="background:${color}"></div>
         <div class="fi-body">
             <span class="fi-icao">${f.icao}</span>
-            <div class="fi-time">
-                <span>${fmtTime(f.first_seen)}</span><span class="fi-time-sep"> → </span><span class="fi-time-end">${fmtTime(f.last_seen)}</span>
-            </div>
+            <div class="fi-time">${fmtTimeRange(f.first_seen, f.last_seen)}</div>
         </div>
     `;
 
