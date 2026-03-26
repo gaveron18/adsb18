@@ -235,6 +235,27 @@ function nextColor() { return COLORS[colorIdx++ % COLORS.length]; }
 const activeTracks = new Map();
 let dotInterval = 5; // km between waypoint dots
 
+// Bearing from point 1 to point 2, degrees 0-360
+function bearingDeg(lat1, lon1, lat2, lon2) {
+    const toR = Math.PI / 180;
+    const dLon = (lon2 - lon1) * toR;
+    const y = Math.sin(dLon) * Math.cos(lat2 * toR);
+    const x = Math.cos(lat1 * toR) * Math.sin(lat2 * toR)
+            - Math.sin(lat1 * toR) * Math.cos(lat2 * toR) * Math.cos(dLon);
+    return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+}
+
+// Heading at end of track: use track field, fall back to bearing of last two points
+function getEndHeading(valid) {
+    const last = valid[valid.length - 1];
+    if (last.track != null) return last.track;
+    if (valid.length >= 2) {
+        const prev = valid[valid.length - 2];
+        return bearingDeg(prev.lat, prev.lon, last.lat, last.lon);
+    }
+    return 0;
+}
+
 function haversineKm(lat1, lon1, lat2, lon2) {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -274,8 +295,17 @@ function buildTrackLayer(valid, f, color) {
         radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1,
     }).bindTooltip(`<b>${cs}</b><br>▶ ${fmtTime(f.first_seen)}`));
     const last = valid[valid.length - 1];
-    layers.push(L.circleMarker([last.lat, last.lon], {
-        radius: 6, fillColor: '#ff3300', color, weight: 2, fillOpacity: 1,
+    const heading = getEndHeading(valid);
+    // SVG airplane pointing north (up), rotated to actual heading
+    const planeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="28" height="28"
+        style="transform:rotate(${heading}deg);transform-origin:center;overflow:visible;
+               filter:drop-shadow(0 0 2px rgba(0,0,0,0.9))">
+        <path d="M50,6 L56,34 L90,50 L90,58 L56,49 L59,87 L68,91 L68,96 L50,91 L32,96 L32,91 L41,87 L44,49 L10,58 L10,50 L44,34 Z"
+              fill="${color}" stroke="white" stroke-width="3" stroke-linejoin="round"/>
+    </svg>`;
+    layers.push(L.marker([last.lat, last.lon], {
+        icon: L.divIcon({ className: '', html: planeSvg, iconSize: [28, 28], iconAnchor: [14, 14] }),
+        zIndexOffset: 1000,
     }).bindTooltip(`<b>${cs}</b><br>■ ${fmtTime(f.last_seen)}`));
     return L.layerGroup(layers);
 }
