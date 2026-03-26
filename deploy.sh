@@ -10,6 +10,7 @@ set -e  # остановиться при любой ошибке
 # Конфиг — поменяй под свой сервер
 # ─────────────────────────────────────────────────────────────────────────────
 DEPLOY_USER="${SUDO_USER:-$USER}"          # пользователь от которого запущен скрипт
+REPO_URL="https://github.com/gaveron18/adsb18.git"
 APP_DIR="/home/$DEPLOY_USER/adsb18"        # папка с репозиторием
 VENV_DIR="/opt/adsb18-venv"               # virtualenv
 DB_NAME="adsb18"
@@ -24,6 +25,18 @@ echo "=== adsb18 deploy ==="
 echo "User:    $DEPLOY_USER"
 echo "App dir: $APP_DIR"
 echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 0. Клонировать репозиторий (если ещё не скачан)
+# ─────────────────────────────────────────────────────────────────────────────
+echo "[0/8] Cloning repository..."
+if [[ ! -d "$APP_DIR/.git" ]]; then
+    sudo -u "$DEPLOY_USER" git clone "$REPO_URL" "$APP_DIR"
+    echo "    Cloned into $APP_DIR"
+else
+    echo "    Already exists, pulling latest..."
+    sudo -u "$DEPLOY_USER" git -C "$APP_DIR" pull
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Системные пакеты
@@ -205,56 +218,15 @@ echo "  API: http://$SERVER_IP:$WEB_PORT/api/docs"
 echo ""
 echo "=== ПОСЛЕ ДЕПЛОЯ — настрой Raspberry Pi ==="
 echo ""
-echo "  1. Скопируй на Pi файл feeder/feeder.py из репозитория"
+echo "  Запусти установку фидера на Pi. На Pi выполни:"
 echo ""
-echo "  2. Создай на Pi /etc/systemd/system/adsb-tunnel.service:"
-echo "     (замени YOUR_VPS_IP на IP этого сервера, YOUR_KEY на путь к ключу)"
-cat <<'PIEOF'
-
-     [Unit]
-     Description=Reverse SSH tunnel to VPS
-     After=network-online.target
-     Wants=network-online.target
-
-     [Service]
-     User=ads-b
-     ExecStart=/usr/bin/autossh -M 0 -N \
-       -o ServerAliveInterval=30 \
-       -o ServerAliveCountMax=3 \
-       -o StrictHostKeyChecking=no \
-       -o ExitOnForwardFailure=yes \
-       -i /home/ads-b/.ssh/id_adsb_vps \
-       -R 52222:localhost:22 \
-       -L 30091:localhost:30001 \
-       new@YOUR_VPS_IP
-     Restart=always
-     RestartSec=10
-
-     [Install]
-     WantedBy=multi-user.target
-
-PIEOF
-echo "  3. Создай на Pi /etc/systemd/system/adsb18-feeder.service:"
-cat <<'PIEOF'
-
-     [Unit]
-     Description=adsb18 ADS-B Feeder
-     After=network-online.target adsb-tunnel.service
-     Wants=network-online.target
-
-     [Service]
-     ExecStart=/usr/bin/python3 /home/ads-b/feeder.py --server 127.0.0.1 --port 30091 --name ads-b-pi
-     Restart=always
-     RestartSec=10
-     User=ads-b
-
-     [Install]
-     WantedBy=multi-user.target
-
-PIEOF
-echo "  4. На Pi:"
-echo "     sudo systemctl daemon-reload"
-echo "     sudo systemctl enable --now adsb-tunnel adsb18-feeder"
+echo "  scp -r $DEPLOY_USER@$(hostname -I | awk '{print $1}'):$APP_DIR/feeder /tmp/adsb18-feeder"
+echo "  sudo bash /tmp/adsb18-feeder/install.sh --vps-ip $(hostname -I | awk '{print $1}') --vps-user $DEPLOY_USER --name имя-пи"
+echo ""
+echo "  Скрипт сам установит всё и создаст SSH-ключ."
+echo "  После этого добавь публичный ключ Pi на этот сервер:"
+echo "    cat /home/ads-b/.ssh/id_adsb_vps.pub  # выполнить на Pi"
+echo "    echo 'КЛЮЧ' >> ~/.ssh/authorized_keys  # выполнить на этом сервере"
 echo ""
 echo "=== ПЕРЕПОДКЛЮЧЕНИЕ Pi НА ДРУГОЙ СЕРВЕР ==="
 echo ""
