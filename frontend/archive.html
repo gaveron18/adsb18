@@ -199,13 +199,14 @@ function nextColor() { return COLORS[colorIdx++ % COLORS.length]; }
 const activeTracks = new Map();
 let allFlights = [];
 
-// ── Date pickers: last 24h ────────────────────────────────────────────────────
+// ── Date pickers: today 00:00 → now, then auto-load ──────────────────────────
 (function() {
     const now  = new Date();
-    const from = new Date(now - 24 * 3600 * 1000);
+    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // 00:00 сегодня
     const fmt  = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     document.getElementById('fromDt').value = fmt(from);
     document.getElementById('toDt').value   = fmt(now);
+    loadArchive(true); // true = auto-select all after load
 })();
 
 function toUTC(s) { return s ? new Date(s).toISOString() : ''; }
@@ -222,7 +223,7 @@ function fmtDur(a, b) {
 function ft2m(ft) { return ft ? Math.round(ft / 3.281) + ' м' : '—'; }
 
 // ── Load flight list ──────────────────────────────────────────────────────────
-async function loadArchive() {
+async function loadArchive(autoSelect = false) {
     const from = toUTC(document.getElementById('fromDt').value);
     const to   = toUTC(document.getElementById('toDt').value);
     if (!from || !to) { alert('Выберите период'); return; }
@@ -248,6 +249,7 @@ async function loadArchive() {
 
         list.innerHTML = '';
         allFlights.forEach(f => buildFlightItem(f, list));
+        if (autoSelect) selectVisible();
     } catch(e) {
         list.innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`;
     }
