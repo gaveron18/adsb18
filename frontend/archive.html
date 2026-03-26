@@ -297,14 +297,14 @@ function buildTrackLayer(valid, f, color) {
     const last = valid[valid.length - 1];
     const heading = getEndHeading(valid);
     // SVG airplane pointing north (up), rotated to actual heading
-    const planeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="28" height="28"
+    const planeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="32" height="32"
         style="transform:rotate(${heading}deg);transform-origin:center;overflow:visible;
-               filter:drop-shadow(0 0 2px rgba(0,0,0,0.9))">
-        <path d="M50,6 L56,34 L90,50 L90,58 L56,49 L59,87 L68,91 L68,96 L50,91 L32,96 L32,91 L41,87 L44,49 L10,58 L10,50 L44,34 Z"
-              fill="${color}" stroke="white" stroke-width="3" stroke-linejoin="round"/>
+               filter:drop-shadow(0 0 3px rgba(0,0,0,1))">
+        <path d="M50,3 L55,18 L58,36 L93,53 L91,61 L57,50 L60,84 L71,88 L70,94 L50,89 L30,94 L29,88 L40,84 L43,50 L9,61 L7,53 L42,36 L45,18 Z"
+              fill="${color}" stroke="white" stroke-width="4" stroke-linejoin="round"/>
     </svg>`;
     layers.push(L.marker([last.lat, last.lon], {
-        icon: L.divIcon({ className: '', html: planeSvg, iconSize: [28, 28], iconAnchor: [14, 14] }),
+        icon: L.divIcon({ className: '', html: planeSvg, iconSize: [32, 32], iconAnchor: [16, 16] }),
         zIndexOffset: 1000,
     }).bindTooltip(`<b>${cs}</b><br>■ ${fmtTime(f.last_seen)}`));
     return L.layerGroup(layers);
