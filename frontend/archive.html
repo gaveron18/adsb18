@@ -562,14 +562,22 @@ async function addTrack(f, el, color, skipFit = false) {
     try {
         const url = `/api/history?icao=${f.icao}&from=${encodeURIComponent(f.first_seen)}&to=${encodeURIComponent(f.last_seen)}&limit=10000`;
         const pts = await fetch(url).then(r => r.json());
+
+        // If clearAll() was called while we were waiting for the fetch,
+        // the checkbox was unchecked — abort to avoid re-adding stale tracks.
+        const cb = el.querySelector('.fi-check');
+        if (!cb || !cb.checked) return;
+
         const valid = pts.filter(p => p.lat != null && p.lon != null);
-        if (!valid.length) { el.querySelector('.fi-check').checked = false; el.classList.remove('active'); return; }
+        if (!valid.length) { cb.checked = false; el.classList.remove('active'); return; }
 
         const layer = buildTrackLayer(valid, f, color).addTo(map);
         activeTracks.set(f.icao, { layer, color, f, el, valid });
         if (!skipFit) { fitAll(); showInfo(f, color); }
     } catch(e) {
-        el.querySelector('.fi-check').checked = false;
+        console.error('addTrack error:', e);
+        const cb = el.querySelector('.fi-check');
+        if (cb) cb.checked = false;
         el.classList.remove('active');
     }
 }
