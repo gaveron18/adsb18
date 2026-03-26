@@ -111,6 +111,10 @@
         .fi-time { font-size: 11px; color: #888; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .fi-time-sep { color: #555; }
         .fi-time-end { color: #aaa; }
+        .fi-del { flex-shrink: 0; background: none; border: none; color: #555;
+            font-size: 14px; cursor: pointer; padding: 4px 2px; line-height: 1;
+            opacity: 0.6; transition: opacity .15s, color .15s; }
+        .fi-del:hover { color: #e57373; opacity: 1; }
 
         .map-wrap { flex: 1; position: relative; }
         #map { width: 100%; height: 100%; }
@@ -439,6 +443,7 @@ function buildFlightItem(f, container) {
             </div>
             <div class="fi-time">${fmtTimeRange(f.first_seen, f.last_seen)}</div>
         </div>
+        <button class="fi-del" title="Удалить рейс из БД" onclick="event.stopPropagation(); deleteFlight(this)">🗑</button>
     `;
 
     const cb = el.querySelector('.fi-check');
@@ -458,6 +463,28 @@ function buildFlightItem(f, container) {
 }
 
 // ── Add / Remove track ────────────────────────────────────────────────────────
+async function deleteFlight(btn) {
+    const el = btn.closest('.flight-item');
+    const icao  = el.dataset.icao;
+    const first = el.dataset.first;
+    const last  = el.dataset.last;
+    const label = el.querySelector('.fi-callsign').textContent;
+    if (!confirm(`Удалить рейс ${label} (${icao}) из базы данных?\nЭто действие необратимо.`)) return;
+    btn.disabled = true;
+    try {
+        const params = new URLSearchParams({ icao, from: first, to: last });
+        const r = await fetch(`/api/flight?${params}`, { method: 'DELETE' });
+        if (!r.ok) throw new Error(await r.text());
+        const data = await r.json();
+        // Remove from active tracks if loaded
+        removeTrack(icao, el);
+        el.remove();
+    } catch (e) {
+        alert('Ошибка удаления: ' + e.message);
+        btn.disabled = false;
+    }
+}
+
 async function addTrack(f, el, color) {
     el.classList.add('active');
     if (activeTracks.has(f.icao)) return;

@@ -177,6 +177,37 @@ async def archive(
     return [dict(r) for r in rows]
 
 
+@app.delete('/api/flight')
+async def delete_flight(
+    icao:    str = Query(..., description='ICAO hex'),
+    from_ts: str = Query(..., alias='from'),
+    to_ts:   str = Query(..., alias='to'),
+):
+    """Delete all position records for one flight (icao + time range)."""
+    icao = icao.upper().strip()
+    try:
+        t_from = datetime.fromisoformat(from_ts)
+        t_to   = datetime.fromisoformat(to_ts)
+    except ValueError:
+        return JSONResponse({'error': 'Invalid date format'}, status_code=400)
+
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            'DELETE FROM positions WHERE icao = $1 AND ts BETWEEN $2 AND $3',
+            icao, t_from, t_to,
+        )
+        deleted = int(result.split()[-1])
+        # If no positions remain for this aircraft, remove from aircraft table too
+        remaining = await conn.fetchval(
+            'SELECT COUNT(*) FROM positions WHERE icao = $1', icao
+        )
+        if remaining == 0:
+            await conn.execute('DELETE FROM aircraft WHERE icao = $1', icao)
+
+    log.info(f'Deleted flight {icao} [{t_from} – {t_to}]: {deleted} rows')
+    return {'deleted': deleted, 'icao': icao}
+
+
 @app.get('/api/feeders')
 async def feeders():
     """List of registered feeders."""
