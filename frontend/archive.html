@@ -100,6 +100,15 @@
         }
         .legend-labels { display: flex; justify-content: space-between; color: #888; }
 
+        .search-box {
+            padding: 6px 8px; border-bottom: 1px solid #0f3460; flex-shrink: 0;
+        }
+        .search-box input {
+            width: 100%; background: #0f3460; border: 1px solid #1a4a7a;
+            color: #e0e0e0; border-radius: 4px; padding: 5px 8px;
+            font-size: 12px; outline: none;
+        }
+        .search-box input:focus { border-color: #4fc3f7; }
         .empty { padding: 24px 12px; text-align: center; color: #555; font-size: 13px; line-height: 1.8; }
         .loading { color: #4fc3f7 !important; }
 
@@ -128,6 +137,9 @@
     <div class="sidebar">
         <div class="sidebar-header">
             Рейсов: <b id="flightCount">—</b>
+        </div>
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Поиск по рейсу или ICAO…" oninput="filterFlights()">
         </div>
         <div class="flight-list" id="flightList">
             <div class="empty">Выберите период и нажмите «Загрузить»</div>
@@ -226,9 +238,12 @@ async function loadArchive() {
         }
 
         list.innerHTML = '';
+        document.getElementById('searchInput').value = '';
         flights.forEach(f => {
             const el  = document.createElement('div');
             el.className = 'flight-item';
+            el.dataset.callsign = (f.callsign || '').trim().toUpperCase();
+            el.dataset.icao     = (f.icao || '').toUpperCase();
             const cs  = (f.callsign || '').trim() || '—';
             const alt = ft2m(f.max_altitude);
             const spd = f.max_speed ? f.max_speed + ' уз' : '—';
@@ -330,6 +345,18 @@ async function showTrack(el, f) {
     } catch(e) {
         alert('Ошибка загрузки трека: ' + e.message);
     }
+}
+
+function filterFlights() {
+    const q = document.getElementById('searchInput').value.trim().toUpperCase();
+    const items = document.querySelectorAll('.flight-item');
+    let visible = 0;
+    items.forEach(el => {
+        const match = !q || el.dataset.callsign.includes(q) || el.dataset.icao.includes(q);
+        el.style.display = match ? '' : 'none';
+        if (match) visible++;
+    });
+    document.getElementById('flightCount').textContent = q ? `${visible} / ${items.length}` : items.length;
 }
 
 function clearTrack() {
