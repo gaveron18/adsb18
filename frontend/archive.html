@@ -106,12 +106,11 @@
             flex-shrink: 0; min-height: 40px;
         }
         .fi-body { flex: 1; min-width: 0; }
-        .fi-top { display: flex; justify-content: space-between; align-items: baseline; }
-        .fi-callsign { font-size: 14px; font-weight: bold; color: #4fc3f7; }
-        .fi-icao { font-size: 11px; color: #666; font-family: monospace; }
-        .fi-meta { font-size: 11px; color: #777; margin-top: 3px; display: flex; gap: 10px; }
-        .fi-meta b { color: #aaa; }
-        .fi-time { font-size: 10px; color: #555; margin-top: 2px; }
+        .fi-icao { font-size: 13px; font-weight: bold; color: #4fc3f7; font-family: monospace; }
+        .fi-time { font-size: 11px; color: #888; margin-top: 4px; }
+        .fi-time-range { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+        .fi-time-sep { color: #555; }
+        .fi-time-end { color: #aaa; }
 
         .map-wrap { flex: 1; position: relative; }
         #map { width: 100%; height: 100%; }
@@ -350,8 +349,9 @@ function initDatePickers() {
 // Refresh times in already-rendered flight list (after TZ change)
 function refreshDisplayedTimes() {
     document.querySelectorAll('.flight-item[data-first]').forEach(el => {
-        const timeEl = el.querySelector('.fi-time');
-        if (timeEl) timeEl.textContent = fmtTime(el.dataset.first);
+        const spans = el.querySelectorAll('.fi-time-range span');
+        if (spans[0]) spans[0].textContent = fmtTime(el.dataset.first);
+        if (spans[2]) spans[2].textContent = fmtTime(el.dataset.last);
     });
     // Refresh info panel if visible
     if (document.getElementById('infoPanel').style.display !== 'none') {
@@ -407,6 +407,7 @@ function buildFlightItem(f, container) {
     el.dataset.icao     = (f.icao || '').toUpperCase();
     el.dataset.color    = color;
     el.dataset.first    = f.first_seen;
+    el.dataset.last     = f.last_seen;
 
     const cs  = (f.callsign || '').trim() || '—';
     const alt = ft2m(f.max_altitude);
@@ -416,16 +417,12 @@ function buildFlightItem(f, container) {
         <input type="checkbox" class="fi-check" onclick="event.stopPropagation()">
         <div class="fi-color" style="background:${color}"></div>
         <div class="fi-body">
-            <div class="fi-top">
-                <span class="fi-callsign">${cs}</span>
-                <span class="fi-icao">${f.icao}</span>
+            <span class="fi-icao">${f.icao}</span>
+            <div class="fi-time fi-time-range">
+                <span>${fmtTime(f.first_seen)}</span>
+                <span class="fi-time-sep">→</span>
+                <span class="fi-time-end">${fmtTime(f.last_seen)}</span>
             </div>
-            <div class="fi-meta">
-                <span>⏱ <b>${fmtDur(f.first_seen, f.last_seen)}</b></span>
-                <span>📍 <b>${f.points}</b></span>
-                <span>↑ <b>${alt}</b></span>
-            </div>
-            <div class="fi-time">${fmtTime(f.first_seen)}</div>
         </div>
     `;
 
