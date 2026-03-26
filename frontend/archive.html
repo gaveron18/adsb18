@@ -178,8 +178,8 @@
         </div>
         <div class="dot-interval">
             Точки каждые:
-            <input type="range" id="dotIntervalSlider" min="5" max="100" step="5" value="20" oninput="onDotIntervalChange()">
-            <span id="dotIntervalLabel">20 км</span>
+            <input type="range" id="dotIntervalSlider" min="1" max="50" step="1" value="5" oninput="onDotIntervalChange()">
+            <span id="dotIntervalLabel">5 км</span>
         </div>
         <div class="search-box">
             <input type="text" id="searchInput" placeholder="Поиск по рейсу или ICAO…" oninput="filterFlights()">
@@ -233,7 +233,7 @@ function nextColor() { return COLORS[colorIdx++ % COLORS.length]; }
 // ── State ─────────────────────────────────────────────────────────────────────
 // activeTracks: icao → { layer, color, f, el }
 const activeTracks = new Map();
-let dotInterval = 20; // km between waypoint dots
+let dotInterval = 5; // km between waypoint dots
 
 function haversineKm(lat1, lon1, lat2, lon2) {
     const R = 6371;
@@ -267,7 +267,7 @@ function buildTrackLayer(valid, f, color) {
         const alt = p.altitude     ? ft2m(p.altitude)          : '—';
         const spd = p.ground_speed ? p.ground_speed + ' уз'    : '—';
         layers.push(L.circleMarker([p.lat, p.lon], {
-            radius: 3, color, fillColor: color, weight: 1, fillOpacity: 0.8,
+            radius: 4, color: '#fff', fillColor: color, weight: 1.5, fillOpacity: 0.9,
         }).bindTooltip(`<b>${cs}</b><br>⏱ ${fmtTime(p.ts)}<br>↑ ${alt} &nbsp;➤ ${spd}`));
     });
     layers.push(L.circleMarker([valid[0].lat, valid[0].lon], {
