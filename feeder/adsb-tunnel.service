@@ -12,6 +12,7 @@ ExecStart=/usr/bin/autossh -M 0 -N \
   -o ExitOnForwardFailure=yes \
   -i /home/ads-b/.ssh/id_adsb_vps \
   -R 52222:localhost:22 \
+  -R 30092:localhost:80 \
   -L 30091:localhost:30001 \
   VPS_USER@VPS_IP
 Restart=always
