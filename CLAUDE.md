@@ -88,3 +88,36 @@ INGEST_PORT=30001
 - При любых изменениях ingest или api: `sudo systemctl restart adsb18-ingest` / `sudo systemctl restart adsb18-api`
 - После фикса бага — добавить запись в **TROUBLESHOOTING.md**
 - В начале сессии читать TROUBLESHOOTING.md чтобы не повторять старые ошибки
+
+---
+
+## Pi — правила изменений и деплоя
+
+**Репо = единственный источник правды для Pi.**
+Все изменения кода и конфига Pi делаются в репо, затем применяются скриптом.
+
+### Изменить что-то на Pi:
+1. Внести изменение в репо (`feeder/feeder.py`, `feeder/adsb-tunnel.service`, `feeder/adsb18-feeder.service`)
+2. Закоммитить и запушить
+3. Применить на Pi:
+```bash
+git pull
+bash feeder/update_pi.sh
+```
+
+### Проверить расхождения без применения:
+```bash
+bash feeder/update_pi.sh --check
+```
+
+### Деплой на новый Pi (с нуля):
+```bash
+# На новом Pi:
+git clone https://github.com/gaveron18/adsb18.git
+sudo bash adsb18/feeder/install.sh --vps-ip 173.249.2.184 --vps-user new --name ИМЯ-PI
+
+# На VPS — добавить публичный ключ нового Pi:
+echo 'ПУБЛИЧНЫЙ_КЛЮЧ' >> ~/.ssh/authorized_keys
+```
+
+**Никогда не редактировать файлы напрямую на Pi** — при следующем `update_pi.sh` они будут перезаписаны из репо.
