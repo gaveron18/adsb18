@@ -559,10 +559,7 @@ function clearAll() {
 function fitAll() {
     const all = [];
     activeTracks.forEach(t => t.valid.forEach(p => all.push([p.lat, p.lon])));
-    if (all.length) {
-        map.fitBounds(L.latLngBounds(all), { padding: [50, 50] });
-        if (map.getZoom() > 9) map.setZoom(9);
-    }
+    if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [120, 120] });
 }
 
 // ── Info panel ────────────────────────────────────────────────────────────────
