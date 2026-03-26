@@ -161,7 +161,7 @@ async def archive(
         rows = await conn.fetch("""
             SELECT
                 icao,
-                callsign,
+                MAX(callsign) AS callsign,
                 MIN(ts)       AS first_seen,
                 MAX(ts)       AS last_seen,
                 COUNT(*)      AS points,
@@ -170,7 +170,7 @@ async def archive(
             FROM positions
             WHERE ts BETWEEN $1 AND $2
               AND lat IS NOT NULL
-            GROUP BY icao, callsign
+            GROUP BY icao
             ORDER BY first_seen DESC
         """, t_from, t_to)
 
