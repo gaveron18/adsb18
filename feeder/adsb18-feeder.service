@@ -4,11 +4,7 @@ After=network-online.target adsb-tunnel.service
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/adsb18-feeder/feeder.py \
-  --server 127.0.0.1 \
-  --port 30091 \
-  --name FEEDER_NAME \
-  --buffer /opt/adsb18-feeder/feeder_buffer.sbs
+ExecStart=/usr/bin/python3 /opt/adsb18-feeder/feeder.py --server 127.0.0.1 --port 30091 --name FEEDER_NAME --buffer /opt/adsb18-feeder/feeder_buffer.sbs
 Restart=always
 RestartSec=10
 User=ads-b
