@@ -326,6 +326,33 @@ Environment=PI_AIRCRAFT_URL=http://127.0.0.1:30092/tar1090/data/aircraft.json
 
 ---
 
+## Сессия 2026-03-26 (автозапуск сервисов)
+
+### ПРОБЛЕМА 13: adsb18-ingest и adsb18-feeder не в автозапуске
+
+**Симптомы:**
+- После перезагрузки VPS данные не собираются (ingest не стартует)
+- После перезагрузки Pi данные не отправляются (feeder не стартует)
+
+**Причина:**
+Сервисы были созданы и запущены вручную, но не добавлены в автозапуск (`systemctl enable`).
+
+**Фикс:**
+```bash
+# На VPS:
+sudo systemctl enable adsb18-ingest
+
+# На Pi (через туннель):
+ssh -p 52222 ads-b@127.0.0.1
+sudo systemctl enable adsb18-feeder
+```
+
+**Текущий статус автозапуска (все enabled):**
+- VPS: postgresql, nginx, adsb18-api, adsb18-ingest
+- Pi: readsb, adsb-tunnel, adsb18-feeder
+
+---
+
 ## Переподключение Pi на другой сервер
 
 Когда меняется IP VPS (переезд, новый сервер):
