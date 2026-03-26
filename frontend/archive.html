@@ -44,6 +44,21 @@
             padding: 3px 8px; font-size: 11px; border-radius: 3px;
         }
 
+        .tz-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+        .tz-row label { font-size: 12px; color: #aaa; }
+        .tz-select {
+            background: #0f3460; border: 1px solid #4fc3f7; color: #e0e0e0;
+            border-radius: 4px; padding: 4px 6px; font-size: 12px; cursor: pointer;
+            max-width: 160px;
+        }
+        .tz-select:focus { outline: none; }
+        .btn-icon {
+            background: transparent; border: 1px solid #4fc3f7; color: #4fc3f7;
+            border-radius: 4px; padding: 3px 7px; font-size: 14px; cursor: pointer;
+            line-height: 1;
+        }
+        .btn-icon:hover { background: #0f3460; }
+
         .main { display: flex; flex: 1; overflow: hidden; }
 
         .sidebar {
@@ -134,6 +149,12 @@
         <input type="datetime-local" id="toDt">
         <button class="btn" onclick="loadArchive()">Загрузить</button>
     </div>
+    <div class="tz-row">
+        <label>🕒</label>
+        <select class="tz-select" id="tzSelect" onchange="onTZChange()"></select>
+        <button class="btn-icon" title="Добавить часовой пояс" onclick="addCustomTZ()">+</button>
+        <button class="btn-icon" id="tzRemoveBtn" title="Удалить" onclick="removeCustomTZ()" style="display:none">✕</button>
+    </div>
 </div>
 
 <div class="main">
@@ -199,21 +220,114 @@ function nextColor() { return COLORS[colorIdx++ % COLORS.length]; }
 const activeTracks = new Map();
 let allFlights = [];
 
-// ── Date pickers: today 00:00 → now, then auto-load ──────────────────────────
-(function() {
-    const now  = new Date();
-    const from = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // 00:00 сегодня
-    const fmt  = d => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    document.getElementById('fromDt').value = fmt(from);
-    document.getElementById('toDt').value   = fmt(now);
-    loadArchive(true); // true = auto-select all after load
-})();
+// ── Timezone ──────────────────────────────────────────────────────────────────
+const TZ_PRESETS = [
+    { name: 'UTC',             offset: 0 },
+    { name: 'Ижевск (UTC+4)',  offset: 4 },
+    { name: 'Пермь (UTC+5)',   offset: 5 },
+];
+const LS_KEY = 'adsb18_tz';
 
-function toUTC(s) { return s ? new Date(s).toISOString() : ''; }
-function fmtUTC(iso) {
-    if (!iso) return '—';
-    return new Date(iso).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+let tzOffsetMs = 0;   // current offset in milliseconds
+let tzLabel    = 'UTC';
+
+function loadTZState() {
+    try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch { return {}; }
 }
+function saveTZState(s) { localStorage.setItem(LS_KEY, JSON.stringify(s)); }
+
+function buildTZSelect() {
+    const sel   = document.getElementById('tzSelect');
+    const state = loadTZState();
+    const custom = state.custom || [];
+    sel.innerHTML = '';
+    [...TZ_PRESETS, ...custom].forEach((tz, i) => {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = tz.name;
+        sel.appendChild(opt);
+    });
+    // Restore saved selection
+    const saved = state.selected ?? 0;
+    sel.value = (saved < sel.options.length) ? saved : 0;
+    applyTZFromSelect();
+}
+
+function applyTZFromSelect() {
+    const sel    = document.getElementById('tzSelect');
+    const idx    = parseInt(sel.value) || 0;
+    const state  = loadTZState();
+    const custom = state.custom || [];
+    const all    = [...TZ_PRESETS, ...custom];
+    const tz     = all[idx] || TZ_PRESETS[0];
+    tzOffsetMs   = tz.offset * 3600000;
+    tzLabel      = tz.name;
+    // Show remove button only for custom entries
+    const isCustom = idx >= TZ_PRESETS.length;
+    document.getElementById('tzRemoveBtn').style.display = isCustom ? '' : 'none';
+    // Save selection
+    state.selected = idx;
+    saveTZState(state);
+}
+
+function onTZChange() {
+    applyTZFromSelect();
+    refreshDisplayedTimes();
+    initDatePickers();
+}
+
+function addCustomTZ() {
+    const name = prompt('Название часового пояса (например: Москва)');
+    if (!name) return;
+    const off = parseFloat(prompt('Смещение UTC (например: 3 для UTC+3)'));
+    if (isNaN(off)) return;
+    const state  = loadTZState();
+    state.custom = state.custom || [];
+    state.custom.push({ name: `${name} (UTC+${off})`, offset: off });
+    saveTZState(state);
+    buildTZSelect();
+    // Select the newly added entry
+    const sel = document.getElementById('tzSelect');
+    sel.value = TZ_PRESETS.length + state.custom.length - 1;
+    onTZChange();
+}
+
+function removeCustomTZ() {
+    const sel    = document.getElementById('tzSelect');
+    const idx    = parseInt(sel.value);
+    const customIdx = idx - TZ_PRESETS.length;
+    if (customIdx < 0) return;
+    if (!confirm(`Удалить "${sel.options[idx].textContent}"?`)) return;
+    const state  = loadTZState();
+    state.custom.splice(customIdx, 1);
+    state.selected = 0;
+    saveTZState(state);
+    buildTZSelect();
+    onTZChange();
+}
+
+// ── Time helpers ──────────────────────────────────────────────────────────────
+function fmtTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(new Date(iso).getTime() + tzOffsetMs);
+    return d.toISOString().slice(0, 16).replace('T', ' ') + ' ' + tzLabel;
+}
+
+// datetime-local input value → UTC ISO (input is in selected TZ)
+function inputToUTC(s) {
+    if (!s) return '';
+    const [date, time = '00:00'] = s.split('T');
+    const [y, mo, d] = date.split('-').map(Number);
+    const [h, mi]    = time.split(':').map(Number);
+    return new Date(Date.UTC(y, mo - 1, d, h, mi) - tzOffsetMs).toISOString();
+}
+
+// UTC ISO → datetime-local value in selected TZ
+function utcToInput(iso) {
+    const d = new Date(new Date(iso).getTime() + tzOffsetMs);
+    return d.toISOString().slice(0, 16);
+}
+
 function fmtDur(a, b) {
     const ms = new Date(b) - new Date(a);
     const h  = Math.floor(ms / 3600000);
@@ -222,10 +336,40 @@ function fmtDur(a, b) {
 }
 function ft2m(ft) { return ft ? Math.round(ft / 3.281) + ' м' : '—'; }
 
+// ── Date pickers: today 00:00 → now in selected TZ ───────────────────────────
+function initDatePickers() {
+    const nowUTC  = new Date().toISOString();
+    const nowInTZ = new Date(Date.now() + tzOffsetMs);
+    const startOfDayUTC = new Date(Date.UTC(
+        nowInTZ.getUTCFullYear(), nowInTZ.getUTCMonth(), nowInTZ.getUTCDate()
+    ) - tzOffsetMs).toISOString();
+    document.getElementById('fromDt').value = utcToInput(startOfDayUTC);
+    document.getElementById('toDt').value   = utcToInput(nowUTC);
+}
+
+// Refresh times in already-rendered flight list (after TZ change)
+function refreshDisplayedTimes() {
+    document.querySelectorAll('.flight-item[data-first]').forEach(el => {
+        const timeEl = el.querySelector('.fi-time');
+        if (timeEl) timeEl.textContent = fmtTime(el.dataset.first);
+    });
+    // Refresh info panel if visible
+    if (document.getElementById('infoPanel').style.display !== 'none') {
+        const icao = document.getElementById('ipIcao').textContent;
+        const t = activeTracks.get(icao);
+        if (t) showInfo(t.f, t.color);
+    }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildTZSelect();
+initDatePickers();
+loadArchive(true);
+
 // ── Load flight list ──────────────────────────────────────────────────────────
 async function loadArchive(autoSelect = false) {
-    const from = toUTC(document.getElementById('fromDt').value);
-    const to   = toUTC(document.getElementById('toDt').value);
+    const from = inputToUTC(document.getElementById('fromDt').value);
+    const to   = inputToUTC(document.getElementById('toDt').value);
     if (!from || !to) { alert('Выберите период'); return; }
 
     clearAll();
@@ -262,6 +406,7 @@ function buildFlightItem(f, container) {
     el.dataset.callsign = (f.callsign || '').trim().toUpperCase();
     el.dataset.icao     = (f.icao || '').toUpperCase();
     el.dataset.color    = color;
+    el.dataset.first    = f.first_seen;
 
     const cs  = (f.callsign || '').trim() || '—';
     const alt = ft2m(f.max_altitude);
@@ -280,7 +425,7 @@ function buildFlightItem(f, container) {
                 <span>📍 <b>${f.points}</b></span>
                 <span>↑ <b>${alt}</b></span>
             </div>
-            <div class="fi-time">${fmtUTC(f.first_seen)}</div>
+            <div class="fi-time">${fmtTime(f.first_seen)}</div>
         </div>
     `;
 
@@ -324,11 +469,11 @@ async function addTrack(f, el, color) {
         }
         layers.push(L.circleMarker([valid[0].lat, valid[0].lon], {
             radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1
-        }).bindTooltip('▶ ' + (f.callsign||f.icao).trim() + '  ' + fmtUTC(f.first_seen)));
+        }).bindTooltip('▶ ' + (f.callsign||f.icao).trim() + '  ' + fmtTime(f.first_seen)));
         const last = valid[valid.length - 1];
         layers.push(L.circleMarker([last.lat, last.lon], {
             radius: 6, fillColor: '#ff3300', color, weight: 2, fillOpacity: 1
-        }).bindTooltip('■ ' + (f.callsign||f.icao).trim() + '  ' + fmtUTC(f.last_seen)));
+        }).bindTooltip('■ ' + (f.callsign||f.icao).trim() + '  ' + fmtTime(f.last_seen)));
 
         const layer = L.layerGroup(layers).addTo(map);
         activeTracks.set(f.icao, { layer, color, f, el, valid });
@@ -381,8 +526,8 @@ function showInfo(f, color) {
     document.getElementById('ipCallsign').textContent = cs;
     document.getElementById('ipCallsign').style.color = color;
     document.getElementById('ipIcao').textContent     = f.icao;
-    document.getElementById('ipFrom').textContent     = fmtUTC(f.first_seen);
-    document.getElementById('ipTo').textContent       = fmtUTC(f.last_seen);
+    document.getElementById('ipFrom').textContent     = fmtTime(f.first_seen);
+    document.getElementById('ipTo').textContent       = fmtTime(f.last_seen);
     document.getElementById('ipDur').textContent      = fmtDur(f.first_seen, f.last_seen);
     document.getElementById('ipPts').textContent      = f.points;
     document.getElementById('ipAlt').textContent      = ft2m(f.max_altitude);
