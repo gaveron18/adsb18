@@ -498,24 +498,30 @@ async function addTrack(f, el, color, skipFit = false) {
         const valid = pts.filter(p => p.lat != null && p.lon != null);
         if (!valid.length) { el.querySelector('.fi-check').checked = false; el.classList.remove('active'); return; }
 
+        const cs = (f.callsign || f.icao).trim();
         const layers = [];
-        for (let i = 1; i < valid.length; i++) {
-            const p0 = valid[i - 1], p1 = valid[i];
-            const seg = L.polyline([[p0.lat, p0.lon], [p1.lat, p1.lon]], {
-                color, weight: 3, opacity: 0.9,
-            });
-            const alt = p1.altitude ? ft2m(p1.altitude) : '—';
-            const spd = p1.ground_speed ? p1.ground_speed + ' уз' : '—';
-            seg.bindTooltip(`${(f.callsign||f.icao).trim()}  ↑ ${alt}  ➤ ${spd}`, { sticky: true });
-            layers.push(seg);
-        }
+
+        // Track line
+        layers.push(L.polyline(valid.map(p => [p.lat, p.lon]), { color, weight: 3, opacity: 0.85 }));
+
+        // Waypoint dots for every point
+        valid.forEach(p => {
+            const alt = p.altitude  ? ft2m(p.altitude)         : '—';
+            const spd = p.ground_speed ? p.ground_speed + ' уз' : '—';
+            const tip = `<b>${cs}</b><br>⏱ ${fmtTime(p.ts)}<br>↑ ${alt} &nbsp;➤ ${spd}`;
+            layers.push(L.circleMarker([p.lat, p.lon], {
+                radius: 3, color, fillColor: color, weight: 1, fillOpacity: 0.8,
+            }).bindTooltip(tip, { sticky: false }));
+        });
+
+        // Start / end markers (on top)
         layers.push(L.circleMarker([valid[0].lat, valid[0].lon], {
-            radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1
-        }).bindTooltip('▶ ' + (f.callsign||f.icao).trim() + '  ' + fmtTime(f.first_seen)));
+            radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1,
+        }).bindTooltip(`<b>${cs}</b><br>▶ ${fmtTime(f.first_seen)}`));
         const last = valid[valid.length - 1];
         layers.push(L.circleMarker([last.lat, last.lon], {
-            radius: 6, fillColor: '#ff3300', color, weight: 2, fillOpacity: 1
-        }).bindTooltip('■ ' + (f.callsign||f.icao).trim() + '  ' + fmtTime(f.last_seen)));
+            radius: 6, fillColor: '#ff3300', color, weight: 2, fillOpacity: 1,
+        }).bindTooltip(`<b>${cs}</b><br>■ ${fmtTime(f.last_seen)}`));
 
         const layer = L.layerGroup(layers).addTo(map);
         activeTracks.set(f.icao, { layer, color, f, el, valid });
