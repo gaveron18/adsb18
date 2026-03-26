@@ -100,6 +100,11 @@ def enqueue(msg: SBSMessage, feeder_id: Optional[int] = None):
     s = _merge(msg.icao, msg, feeder_id)
     if not s.get('ts'):
         return
+    # Only store coordinates if the CURRENT message actually has position data.
+    # _state retains the last-known lat/lon, so s.get('lat') would carry stale
+    # coordinates into non-position messages (speed, altitude, etc.), creating
+    # hundreds of duplicate points at the same location.
+    has_pos = msg.lat is not None and msg.lon is not None
     _batch.append((
         s['ts'],
         s['icao'],
@@ -108,8 +113,8 @@ def enqueue(msg: SBSMessage, feeder_id: Optional[int] = None):
         s.get('altitude'),
         s.get('ground_speed'),
         s.get('track'),
-        s.get('lat'),
-        s.get('lon'),
+        s.get('lat') if has_pos else None,  # validated by _merge/_valid_position
+        s.get('lon') if has_pos else None,
         s.get('vertical_rate'),
         s.get('squawk'),
         s.get('is_on_ground', False),
