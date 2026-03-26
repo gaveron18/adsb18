@@ -178,8 +178,8 @@
         </div>
         <div class="dot-interval">
             Точки каждые:
-            <input type="range" id="dotIntervalSlider" min="1" max="5" value="2" oninput="onDotIntervalChange()">
-            <span id="dotIntervalLabel">2 сек</span>
+            <input type="range" id="dotIntervalSlider" min="5" max="100" step="5" value="20" oninput="onDotIntervalChange()">
+            <span id="dotIntervalLabel">20 км</span>
         </div>
         <div class="search-box">
             <input type="text" id="searchInput" placeholder="Поиск по рейсу или ICAO…" oninput="filterFlights()">
@@ -233,16 +233,27 @@ function nextColor() { return COLORS[colorIdx++ % COLORS.length]; }
 // ── State ─────────────────────────────────────────────────────────────────────
 // activeTracks: icao → { layer, color, f, el }
 const activeTracks = new Map();
-let dotInterval = 2; // seconds between waypoint dots
+let dotInterval = 20; // km between waypoint dots
 
-function samplePoints(valid, intervalSecs) {
+function haversineKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2
+            + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
+            * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(Math.max(0, a)));
+}
+
+function samplePoints(valid, distKm) {
     if (!valid.length) return [];
-    const ms = intervalSecs * 1000;
     const result = [valid[0]];
-    let lastTs = new Date(valid[0].ts).getTime();
+    let acc = 0, prev = valid[0];
     for (let i = 1; i < valid.length - 1; i++) {
-        const ts = new Date(valid[i].ts).getTime();
-        if (ts - lastTs >= ms) { result.push(valid[i]); lastTs = ts; }
+        const p = valid[i];
+        acc += haversineKm(prev.lat, prev.lon, p.lat, p.lon);
+        prev = p;
+        if (acc >= distKm) { result.push(p); acc = 0; }
     }
     if (valid.length > 1) result.push(valid[valid.length - 1]);
     return result;
@@ -271,7 +282,7 @@ function buildTrackLayer(valid, f, color) {
 
 function onDotIntervalChange() {
     dotInterval = parseInt(document.getElementById('dotIntervalSlider').value);
-    document.getElementById('dotIntervalLabel').textContent = dotInterval + ' сек';
+    document.getElementById('dotIntervalLabel').textContent = dotInterval + ' км';
     activeTracks.forEach(t => {
         map.removeLayer(t.layer);
         t.layer = buildTrackLayer(t.valid, t.f, t.color).addTo(map);
