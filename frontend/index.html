@@ -22,7 +22,7 @@
     <title>tar1090</title>
   <style>
     #monitor-badge {
-      position: fixed; bottom: 12px; left: 12px; z-index: 9000;
+      position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 9000;
       background: rgba(30,30,30,0.88); color: #ddd;
       border-radius: 8px; padding: 6px 10px;
       font: 12px/1.5 monospace; min-width: 160px;
@@ -746,12 +746,6 @@
         </div>
       </div> <!-- selected_infoblock -->
 
-
-    <div id="monitor-badge" class="collapsed" onclick="this.classList.toggle('collapsed')">
-      <span class="mb-dot wait" id="mb-dot">●</span>
-      <span id="mb-title"> Pi→Server: ожидание...</span>
-      <div class="mb-detail" id="mb-detail"></div>
-    </div>
       <div id="loader">
           <progress id="loader_progress"></progress>
       </div>
@@ -1155,5 +1149,10 @@
       setInterval(fetchMonitor, 30000);
     })();
     </script>
+  <div id="monitor-badge" class="collapsed" onclick="this.classList.toggle('collapsed')">
+    <span class="mb-dot wait" id="mb-dot">●</span>
+    <span id="mb-title"> Pi→Server: ожидание...</span>
+    <div class="mb-detail" id="mb-detail"></div>
+  </div>
   </body>
 </html>
