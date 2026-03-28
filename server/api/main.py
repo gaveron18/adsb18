@@ -29,10 +29,39 @@ DB_DSN = os.getenv('DATABASE_URL', 'postgresql://adsb:adsb@postgres:5432/adsb18'
 
 PI_SSH_CMD = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=5',
               '-p', '52222', 'ads-b@127.0.0.1']
-PI_AIRCRAFT_CMD = PI_SSH_CMD + ['curl -s http://localhost:8504/data/aircraft.json']
 
-MONITOR_INTERVAL = 30   # seconds between checks
-CURRENT_WINDOW   = 60   # seconds — "current" aircraft window for comparison
+MONITOR_INTERVAL = 30    # seconds between checks
+MONITOR_WINDOW   = 3600  # 1 hour — match tar1090 chunk history
+
+# Script sent to Pi via stdin: reads all tar1090 gz chunks, returns {hex: type} JSON
+_PI_CHUNKS_SCRIPT = b"""
+import glob, gzip, json
+chunks = glob.glob('/run/tar1090/chunk_*.gz')
+for extra in ['/run/tar1090/current_large.gz', '/run/tar1090/current_small.gz']:
+    if extra not in chunks:
+        chunks.append(extra)
+hexes = {}
+for f in chunks:
+    try:
+        raw = gzip.open(f).read().decode()
+        for line in raw.strip().split('\\n'):
+            line = line.strip().rstrip(',')
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+                for a in d.get('aircraft', []):
+                    if isinstance(a, list) and len(a) > 0:
+                        h = a[0].lower().strip()
+                        t = a[7] if len(a) > 7 else ''
+                        if h and h not in hexes:
+                            hexes[h] = t or ''
+            except Exception:
+                pass
+    except Exception:
+        pass
+print(json.dumps(hexes))
+"""
 
 app = FastAPI(title='adsb18 API', docs_url='/api/docs')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
@@ -65,53 +94,48 @@ def _classify_type(raw_type: str) -> str:
     return 'other'
 
 
-async def _fetch_pi_aircraft() -> list[dict]:
-    """SSH to Pi and return current aircraft list from readsb."""
+async def _fetch_pi_chunks() -> dict[str, str]:
+    """SSH to Pi, run chunk-reader script, return {hex: raw_type}."""
     proc = await asyncio.create_subprocess_exec(
-        *PI_AIRCRAFT_CMD,
+        *PI_SSH_CMD, 'python3',
+        stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
-    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-    data = json.loads(stdout.decode())
-    return data.get('aircraft', [])
+    stdout, _ = await asyncio.wait_for(proc.communicate(input=_PI_CHUNKS_SCRIPT), timeout=15)
+    return json.loads(stdout.decode())
 
 
 async def monitor_task():
-    """Background task: compare Pi vs server every MONITOR_INTERVAL seconds."""
+    """Background task: compare Pi chunks vs server every MONITOR_INTERVAL seconds."""
     global _monitor_status
     await asyncio.sleep(5)  # wait for pool to be ready
     while True:
         try:
-            # 1. Fetch Pi aircraft
-            pi_aircraft = await _fetch_pi_aircraft()
-            pi_hexes = {a['hex'].lower().strip() for a in pi_aircraft}
+            # 1. Fetch all unique aircraft from Pi tar1090 chunks (last ~1 hour)
+            pi_hexes = await _fetch_pi_chunks()  # {hex: raw_type}
 
-            # Count by type (only aircraft seen < CURRENT_WINDOW seconds ago)
+            # Count by signal type
             by_type: dict[str, int] = {}
-            pi_current = []
-            for a in pi_aircraft:
-                if a.get('seen', 9999) < CURRENT_WINDOW:
-                    pi_current.append(a)
-                    t = _classify_type(a.get('type', ''))
-                    by_type[t] = by_type.get(t, 0) + 1
-            pi_current_hexes = {a['hex'].lower().strip() for a in pi_current}
+            for raw_t in pi_hexes.values():
+                t = _classify_type(raw_t)
+                by_type[t] = by_type.get(t, 0) + 1
 
-            # 2. Fetch server aircraft (last CURRENT_WINDOW seconds)
-            cutoff = datetime.now(timezone.utc) - timedelta(seconds=CURRENT_WINDOW)
+            # 2. Fetch server aircraft seen in last MONITOR_WINDOW seconds
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=MONITOR_WINDOW)
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     "SELECT icao FROM aircraft WHERE last_seen >= $1", cutoff
                 )
             server_hexes = {r['icao'].lower().strip() for r in rows}
 
-            # 3. Missing = on Pi but not on server
-            missing = sorted(pi_current_hexes - server_hexes)
+            # 3. Missing = on Pi chunks but not on server
+            missing = sorted(set(pi_hexes.keys()) - server_hexes)
 
             _monitor_status = {
                 'ok': len(missing) == 0,
                 'checked_at': datetime.now(timezone.utc).isoformat(),
-                'pi':     {'total': len(pi_current), 'by_type': by_type},
+                'pi':     {'total': len(pi_hexes), 'by_type': by_type},
                 'server': {'total': len(server_hexes)},
                 'missing': missing,
                 'error': None,
