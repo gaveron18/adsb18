@@ -7,10 +7,12 @@ Endpoints:
   GET  /api/history?icao=&from=&to=   — track history for one aircraft
   GET  /api/aircraft           — all aircraft seen in last 24h
   GET  /api/feeders            — connected feeders
+  GET  /api/monitor            — Pi vs Server comparison status
   WS   /ws                     — real-time aircraft updates
 """
 import os
 import time
+import json
 import asyncio
 import logging
 import asyncpg
@@ -25,11 +27,105 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 
 DB_DSN = os.getenv('DATABASE_URL', 'postgresql://adsb:adsb@postgres:5432/adsb18')
 
+PI_SSH_CMD = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=5',
+              '-p', '52222', 'ads-b@127.0.0.1']
+PI_AIRCRAFT_CMD = PI_SSH_CMD + ['curl -s http://localhost:8504/data/aircraft.json']
+
+MONITOR_INTERVAL = 30   # seconds between checks
+CURRENT_WINDOW   = 60   # seconds — "current" aircraft window for comparison
+
 app = FastAPI(title='adsb18 API', docs_url='/api/docs')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
 
 pool: asyncpg.Pool = None
 ws_clients: list[WebSocket] = []
+
+_monitor_status: dict = {
+    'ok': None,
+    'checked_at': None,
+    'pi': {'total': 0, 'by_type': {}},
+    'server': {'total': 0},
+    'missing': [],
+    'error': None,
+}
+
+
+def _classify_type(raw_type: str) -> str:
+    if not raw_type:
+        return 'other'
+    t = raw_type.lower()
+    if t.startswith('adsb'):
+        return 'ADS-B'
+    if t == 'mlat':
+        return 'MLAT'
+    if t.startswith('tisb'):
+        return 'TIS-B'
+    if t == 'mode_s':
+        return 'Mode-S'
+    return 'other'
+
+
+async def _fetch_pi_aircraft() -> list[dict]:
+    """SSH to Pi and return current aircraft list from readsb."""
+    proc = await asyncio.create_subprocess_exec(
+        *PI_AIRCRAFT_CMD,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+    data = json.loads(stdout.decode())
+    return data.get('aircraft', [])
+
+
+async def monitor_task():
+    """Background task: compare Pi vs server every MONITOR_INTERVAL seconds."""
+    global _monitor_status
+    await asyncio.sleep(5)  # wait for pool to be ready
+    while True:
+        try:
+            # 1. Fetch Pi aircraft
+            pi_aircraft = await _fetch_pi_aircraft()
+            pi_hexes = {a['hex'].lower().strip() for a in pi_aircraft}
+
+            # Count by type (only aircraft seen < CURRENT_WINDOW seconds ago)
+            by_type: dict[str, int] = {}
+            pi_current = []
+            for a in pi_aircraft:
+                if a.get('seen', 9999) < CURRENT_WINDOW:
+                    pi_current.append(a)
+                    t = _classify_type(a.get('type', ''))
+                    by_type[t] = by_type.get(t, 0) + 1
+            pi_current_hexes = {a['hex'].lower().strip() for a in pi_current}
+
+            # 2. Fetch server aircraft (last CURRENT_WINDOW seconds)
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=CURRENT_WINDOW)
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT icao FROM aircraft WHERE last_seen >= $1", cutoff
+                )
+            server_hexes = {r['icao'].lower().strip() for r in rows}
+
+            # 3. Missing = on Pi but not on server
+            missing = sorted(pi_current_hexes - server_hexes)
+
+            _monitor_status = {
+                'ok': len(missing) == 0,
+                'checked_at': datetime.now(timezone.utc).isoformat(),
+                'pi':     {'total': len(pi_current), 'by_type': by_type},
+                'server': {'total': len(server_hexes)},
+                'missing': missing,
+                'error': None,
+            }
+
+            if missing:
+                log.warning(f'Monitor: {len(missing)} aircraft on Pi missing from server: {missing}')
+
+        except Exception as e:
+            log.error(f'Monitor error: {e}')
+            _monitor_status['error'] = str(e)
+            _monitor_status['ok'] = False
+
+        await asyncio.sleep(MONITOR_INTERVAL)
 
 
 @app.on_event('startup')
@@ -37,6 +133,7 @@ async def startup():
     global pool
     pool = await asyncpg.create_pool(DB_DSN, min_size=2, max_size=10)
     asyncio.create_task(ws_broadcaster())
+    asyncio.create_task(monitor_task())
     log.info('API started, connected to PostgreSQL')
 
 
@@ -95,6 +192,14 @@ async def aircraft_json():
         'messages': sum(a['messages'] for a in aircraft),
         'aircraft': aircraft,
     })
+
+
+# ── Monitor ───────────────────────────────────────────────────────────────────
+
+@app.get('/api/monitor')
+async def monitor():
+    """Pi vs Server comparison status."""
+    return JSONResponse(_monitor_status)
 
 
 # ── History API ───────────────────────────────────────────────────────────────
@@ -197,7 +302,6 @@ async def delete_flight(
             icao, t_from, t_to,
         )
         deleted = int(result.split()[-1])
-        # If no positions remain for this aircraft, remove from aircraft table too
         remaining = await conn.fetchval(
             'SELECT COUNT(*) FROM positions WHERE icao = $1', icao
         )

@@ -20,6 +20,22 @@
     <link rel="icon" type="image/png" href="images/tar1090-favicon.png">
 
     <title>tar1090</title>
+  <style>
+    #monitor-badge {
+      position: fixed; bottom: 12px; left: 12px; z-index: 9000;
+      background: rgba(30,30,30,0.88); color: #ddd;
+      border-radius: 8px; padding: 6px 10px;
+      font: 12px/1.5 monospace; min-width: 160px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      cursor: pointer; user-select: none;
+    }
+    #monitor-badge .mb-dot { font-size: 14px; }
+    #monitor-badge .mb-dot.ok  { color: #4caf50; }
+    #monitor-badge .mb-dot.err { color: #f44336; }
+    #monitor-badge .mb-dot.wait { color: #aaa; }
+    #monitor-badge .mb-detail { margin-top: 3px; font-size: 11px; color: #bbb; }
+    #monitor-badge.collapsed .mb-detail { display: none; }
+  </style>
   </head>
 
   <body>
@@ -730,6 +746,12 @@
         </div>
       </div> <!-- selected_infoblock -->
 
+
+    <div id="monitor-badge" class="collapsed" onclick="this.classList.toggle('collapsed')">
+      <span class="mb-dot wait" id="mb-dot">●</span>
+      <span id="mb-title"> Pi→Server: ожидание...</span>
+      <div class="mb-detail" id="mb-detail"></div>
+    </div>
       <div id="loader">
           <progress id="loader_progress"></progress>
       </div>
@@ -1067,7 +1089,7 @@
     <script src="libs/zstddec-tar1090-0.0.5.js"></script>
 
     <!-- ol-custom bundling created using https://github.com/wiedehopf/ol-rollup-->
-    <script src="libs/ol-custom-10.7.0.js"></script>
+    <script src="libs/ol-custom-10.7.0.js?v=2"></script>
 
     <!-- JS_ANCHOR2 -->
     <script src="early.js"></script>
@@ -1089,5 +1111,49 @@
 
     <link rel="preload" as="image" crossOrigin="anonymous" href="images/sprites.png">
 
+
+    <script>
+    (function() {
+      function fetchMonitor() {
+        fetch('/api/monitor').then(r => r.json()).then(function(d) {
+          var dot   = document.getElementById('mb-dot');
+          var title = document.getElementById('mb-title');
+          var detail = document.getElementById('mb-detail');
+          if (d.error) {
+            dot.className = 'mb-dot err'; dot.textContent = '●';
+            title.textContent = ' Pi→Server: ошибка';
+            detail.textContent = d.error;
+            return;
+          }
+          if (d.checked_at === null) {
+            dot.className = 'mb-dot wait'; title.textContent = ' Pi→Server: ожидание...';
+            return;
+          }
+          var ok = d.ok;
+          dot.className = 'mb-dot ' + (ok ? 'ok' : 'err');
+          dot.textContent = '●';
+          var pi = d.pi; var srv = d.server;
+          title.textContent = ' Pi ' + pi.total + ' / Srv ' + srv.total;
+          var lines = [];
+          if (pi.by_type) {
+            Object.keys(pi.by_type).sort().forEach(function(t) {
+              lines.push(t + ': ' + pi.by_type[t]);
+            });
+          }
+          if (d.missing && d.missing.length > 0) {
+            lines.push('⚠ нет на сервере: ' + d.missing.join(', '));
+          }
+          var t = new Date(d.checked_at);
+          lines.push('обновлено: ' + t.toLocaleTimeString());
+          detail.innerHTML = lines.join('<br>');
+        }).catch(function() {
+          document.getElementById('mb-dot').className = 'mb-dot err';
+          document.getElementById('mb-title').textContent = ' Pi→Server: недоступен';
+        });
+      }
+      fetchMonitor();
+      setInterval(fetchMonitor, 30000);
+    })();
+    </script>
   </body>
 </html>
