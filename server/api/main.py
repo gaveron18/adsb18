@@ -159,9 +159,26 @@ async def receiver_json():
 
 @app.get('/data/aircraft.json')
 async def aircraft_json():
-    """tar1090 frontend reads this every second."""
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=3600)
+    """
+    Live aircraft data. Primary: proxy Pi tar1090 directly.
+    Fallback: DB query (last 2 min) if Pi/tunnel is unavailable.
+    """
+    # --- Primary: Pi is source of truth ---
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            'curl', '-s', '--max-time', '3', PI_AIRCRAFT_URL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+        data = json.loads(stdout.decode())
+        if isinstance(data.get('aircraft'), list):
+            return JSONResponse(data)
+    except Exception as e:
+        log.warning(f'Pi proxy failed, using DB fallback: {e}')
+
+    # --- Fallback: reconstruct from DB (last 2 minutes) ---
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=120)
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT icao, last_callsign, last_altitude, last_speed,
@@ -180,7 +197,6 @@ async def aircraft_json():
         if r['last_altitude'] is not None: a['alt_baro']  = r['last_altitude']
         if r['last_speed']    is not None: a['gs']        = r['last_speed']
         if r['last_track']    is not None: a['track']     = r['last_track']
-        # Only show lat/lon if position was updated in last 120 seconds
         pos_age = r['pos_age']
         if r['last_lat'] is not None and pos_age is not None and float(pos_age) < 120:
             a['lat'] = round(r['last_lat'], 5)
