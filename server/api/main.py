@@ -33,14 +33,14 @@ PI_SSH_CMD = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=5',
 MONITOR_INTERVAL = 30    # seconds between checks
 MONITOR_WINDOW   = 3600  # 1 hour — match tar1090 chunk history
 
-# Script sent to Pi via stdin: reads all tar1090 gz chunks, returns {hex: type} JSON
-_PI_CHUNKS_SCRIPT = b"""
-import glob, gzip, json
-chunks = glob.glob('/run/tar1090/chunk_*.gz')
+# Script sent to Pi via stdin: reads tar1090 gz chunks from last MONITOR_WINDOW, returns {hex: type} JSON
+_PI_CHUNKS_SCRIPT = """
+import glob, gzip, json, os, time
+cutoff = time.time() - {window}
+chunks = [f for f in glob.glob('/run/tar1090/chunk_*.gz') if os.path.getmtime(f) >= cutoff]
 for extra in ['/run/tar1090/current_large.gz', '/run/tar1090/current_small.gz']:
-    if extra not in chunks:
-        chunks.append(extra)
-hexes = {}
+    chunks.append(extra)
+hexes = {{}}
 for f in chunks:
     try:
         raw = gzip.open(f).read().decode()
@@ -61,7 +61,7 @@ for f in chunks:
     except Exception:
         pass
 print(json.dumps(hexes))
-"""
+""".format(window=MONITOR_WINDOW).encode()
 
 app = FastAPI(title='adsb18 API', docs_url='/api/docs')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
