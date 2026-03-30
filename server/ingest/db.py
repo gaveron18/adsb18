@@ -19,7 +19,11 @@ _state: dict[str, dict] = {}
 
 # Last validated position per ICAO — used for ghost position filtering
 _last_valid_pos: dict[str, tuple] = {}  # icao → (lat, lon, ts)
-MAX_SPEED_KTS = 800  # above this speed the position jump is physically impossible
+MAX_SPEED_KTS = 800   # above this speed the position jump is physically impossible
+
+# Last recorded pos_ts per ICAO — used to skip duplicate position writes
+_last_pos_ts: dict[str, datetime] = {}
+
 
 
 def _valid_position(icao: str, lat: float, lon: float, ts: datetime) -> bool:
@@ -45,6 +49,8 @@ def _valid_position(icao: str, lat: float, lon: float, ts: datetime) -> bool:
             f'({prev_lat:.3f},{prev_lon:.3f})→({lat:.3f},{lon:.3f}) '
             f'{dist_km:.0f}km in {dt:.1f}s = {speed_kts:.0f}kts'
         )
+        # Reset so the next real fix is accepted as a fresh start
+        del _last_valid_pos[icao]
         return False
     _last_valid_pos[icao] = (lat, lon, ts)
     return True
@@ -249,26 +255,28 @@ def process_snapshot(data: dict, feeder_id: Optional[int] = None) -> int:
         s['ts']        = pos_ts
         s['feeder_id'] = feeder_id
 
-        # --- Add to _batch (positions + aircraft table) for all aircraft ---
-        # For aircraft without lat/lon, lat/lon will be None — _flush uses COALESCE,
-        # so the aircraft table keeps its last known position.
-        _batch.append((
-            pos_ts,
-            icao,
-            feeder_id,
-            callsign,
-            altitude,
-            ground_speed,
-            track,
-            lat,
-            lon,
-            vertical_rate,
-            squawk,
-            is_on_ground,
-        ))
-
+        # --- Add to _batch only if there is a new position ---
+        # Rows without lat/lon are useless in the positions table.
+        # Rows with the same pos_ts as last time are duplicates (aircraft not heard since).
         if lat is not None and lon is not None:
-            added += 1
+            prev_ts = _last_pos_ts.get(icao)
+            if prev_ts is None or pos_ts != prev_ts:
+                _last_pos_ts[icao] = pos_ts
+                _batch.append((
+                    pos_ts,
+                    icao,
+                    feeder_id,
+                    callsign,
+                    altitude,
+                    ground_speed,
+                    track,
+                    lat,
+                    lon,
+                    vertical_rate,
+                    squawk,
+                    is_on_ground,
+                ))
+                added += 1
 
     return added
 
