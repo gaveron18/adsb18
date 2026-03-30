@@ -129,10 +129,8 @@ async def monitor_task():
                 )
             server_hexes = {r['icao'].lower().strip() for r in rows}
 
-            # 3. Missing = on Pi chunks (ADS-B/MLAT only) but not on server
-            # Mode-S-only aircraft never broadcast position, skip them
-            pi_with_pos = {h for h, t in pi_hexes.items() if _classify_type(t) in ('ADS-B', 'MLAT')}
-            missing = sorted(pi_with_pos - server_hexes)
+            # 3. Missing = all Pi aircraft (ADS-B + Mode-S) not on server
+            missing = sorted(set(pi_hexes.keys()) - server_hexes)
 
             _monitor_status = {
                 'ok': len(missing) == 0,
