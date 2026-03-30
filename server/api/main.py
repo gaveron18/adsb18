@@ -185,7 +185,7 @@ async def receiver_json():
 async def aircraft_json():
     """tar1090 frontend reads this every second."""
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=120)  # live view: only recently heard aircraft
+    cutoff = now - timedelta(seconds=3600)
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT icao, last_callsign, last_altitude, last_speed,
