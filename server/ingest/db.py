@@ -122,6 +122,10 @@ def enqueue(msg: SBSMessage, feeder_id: Optional[int] = None):
         s.get('vertical_rate'),
         s.get('squawk'),
         s.get('is_on_ground', False),
+        None,   # signal_type
+        None,   # rssi
+        None,   # category
+        None,   # emergency
     ))
 
 

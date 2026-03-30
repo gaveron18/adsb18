@@ -147,11 +147,14 @@ async def shutdown():
 @app.get('/data/receiver.json')
 async def receiver_json():
     return JSONResponse({
-        "version":  "adsb18",
-        "refresh":  1000,
-        "history":  0,
-        "lat":      56.8373,
-        "lon":      53.2492,
+        "version":    "adsb18",
+        "refresh":    1000,
+        "history":    0,
+        "lat":        56.8373,
+        "lon":        53.2492,
+        "haveTraces": True,
+        "zstd":       False,
+        "binCraft":   False,
     })
 
 
@@ -398,6 +401,59 @@ async def trace_json(last2: str, filename: str):
         'timestamp': 0,       # normalizeTraceStamps adds this to each point[0]
         'trace':     trace,
     })
+
+
+# ── Globe history (tar1090 date picker) ──────────────────────────────────────
+
+@app.get('/globe_history/{year}/{month}/{day}/traces/{last2}/{filename}')
+async def globe_history_trace(year: int, month: int, day: int, last2: str, filename: str):
+    """
+    Historical tracks for a specific date — used by tar1090 date picker.
+    URL: /globe_history/2026/03/29/traces/{hex[-2:]}/trace_full_{hex}.json
+    """
+    from fastapi import HTTPException
+    name = filename[:-5] if filename.endswith('.json') else filename
+    hex_part = name[len('trace_recent_'):] if name.startswith('trace_recent_') else name[len('trace_full_'):]
+    icao = hex_part.upper().strip()
+
+    if len(icao) != 6:
+        raise HTTPException(status_code=404, detail='Invalid ICAO')
+
+    try:
+        date_from = datetime(year, month, day, 0, 0, 0, tzinfo=timezone.utc)
+        date_to   = datetime(year, month, day, 23, 59, 59, tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail='Invalid date')
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT EXTRACT(EPOCH FROM ts)::double precision AS ts_epoch,
+                   lat, lon, altitude, ground_speed, track, vertical_rate
+            FROM positions
+            WHERE icao = $1
+              AND ts BETWEEN $2 AND $3
+              AND lat IS NOT NULL AND lon IS NOT NULL
+            ORDER BY ts ASC
+            LIMIT 20000
+        """, icao, date_from, date_to)
+
+    if not rows:
+        raise HTTPException(status_code=404, detail='No data')
+
+    trace = []
+    for r in rows:
+        trace.append([
+            round(float(r['ts_epoch']), 1),
+            round(float(r['lat']), 5),
+            round(float(r['lon']), 5),
+            r['altitude'],
+            r['ground_speed'],
+            r['track'],
+            0,
+            r['vertical_rate'],
+        ])
+
+    return JSONResponse({'icao': icao, 'timestamp': 0, 'trace': trace})
 
 
 # ── WebSocket broadcast ───────────────────────────────────────────────────────

@@ -441,3 +441,17 @@ tableColors = {
 //
 
 // MergeNonIcao = false; // set to true to merge non icao hex with the icao hex (remove the ~)
+
+// ── adsb18 custom settings ────────────────────────────────────────────────────
+
+// Route API (flight routes)
+useRouteAPI = true;
+routeApiUrl = "https://api.adsb.lol/api/0/routeset";
+routeDisplay = 'iata';
+
+// Aircraft photos from planespotters.net
+showPictures = true;
+planespottersAPI = true;
+
+// Share links
+shareBaseUrl = 'https://adsb.lol/';
