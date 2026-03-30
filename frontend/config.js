@@ -451,7 +451,7 @@ routeDisplay = 'iata';
 
 // Aircraft photos from planespotters.net
 showPictures = true;
-planespottersAPI = true;
+planespottersAPI = false;
 
 // Share links
 shareBaseUrl = 'https://adsb.lol/';
