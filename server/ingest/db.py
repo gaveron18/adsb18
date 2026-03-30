@@ -402,7 +402,7 @@ async def _flush_aircraft(ac_batch: list[tuple]):
             last_vrate    = COALESCE(EXCLUDED.last_vrate,    aircraft.last_vrate),
             last_squawk   = COALESCE(EXCLUDED.last_squawk,   aircraft.last_squawk),
             is_on_ground  = EXCLUDED.is_on_ground,
-            msg_count     = GREATEST(aircraft.msg_count, EXCLUDED.msg_count)
+            msg_count     = EXCLUDED.msg_count
     """
     # Deduplicate — keep last record per ICAO
     seen: dict[str, tuple] = {}
