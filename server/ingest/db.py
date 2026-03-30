@@ -342,8 +342,9 @@ async def _flush(batch: list[tuple]):
         INSERT INTO aircraft
             (icao, last_seen, first_seen, last_callsign,
              last_lat, last_lon, last_altitude, last_speed,
-             last_track, last_vrate, last_squawk, is_on_ground, msg_count)
-        VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1)
+             last_track, last_vrate, last_squawk, is_on_ground, msg_count,
+             last_pos_seen)
+        VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1,$2)
         ON CONFLICT (icao) DO UPDATE SET
             last_seen     = EXCLUDED.last_seen,
             last_callsign = COALESCE(EXCLUDED.last_callsign, aircraft.last_callsign),
@@ -355,7 +356,8 @@ async def _flush(batch: list[tuple]):
             last_vrate    = COALESCE(EXCLUDED.last_vrate,    aircraft.last_vrate),
             last_squawk   = COALESCE(EXCLUDED.last_squawk,   aircraft.last_squawk),
             is_on_ground  = EXCLUDED.is_on_ground,
-            msg_count     = aircraft.msg_count + 1
+            msg_count     = aircraft.msg_count + 1,
+            last_pos_seen = EXCLUDED.last_pos_seen
     """
     try:
         async with _pool.acquire() as conn:

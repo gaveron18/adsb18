@@ -167,7 +167,8 @@ async def aircraft_json():
             SELECT icao, last_callsign, last_altitude, last_speed,
                    last_track, last_lat, last_lon, last_vrate,
                    last_squawk, is_on_ground, msg_count,
-                   EXTRACT(EPOCH FROM (NOW() - last_seen)) AS seen_ago
+                   EXTRACT(EPOCH FROM (NOW() - last_seen)) AS seen_ago,
+                   EXTRACT(EPOCH FROM (NOW() - last_pos_seen)) AS pos_age
             FROM aircraft
             WHERE last_seen >= $1
         """, cutoff)
@@ -179,8 +180,11 @@ async def aircraft_json():
         if r['last_altitude'] is not None: a['alt_baro']  = r['last_altitude']
         if r['last_speed']    is not None: a['gs']        = r['last_speed']
         if r['last_track']    is not None: a['track']     = r['last_track']
-        if r['last_lat']      is not None: a['lat']       = round(r['last_lat'], 5)
-        if r['last_lon']      is not None: a['lon']       = round(r['last_lon'], 5)
+        # Only show lat/lon if position was updated in last 120 seconds
+        pos_age = r['pos_age']
+        if r['last_lat'] is not None and pos_age is not None and float(pos_age) < 120:
+            a['lat'] = round(r['last_lat'], 5)
+            a['lon'] = round(r['last_lon'], 5)
         if r['last_vrate']    is not None: a['baro_rate'] = r['last_vrate']
         if r['last_squawk']:  a['squawk']    = r['last_squawk']
         if r['is_on_ground']: a['ground']    = 1

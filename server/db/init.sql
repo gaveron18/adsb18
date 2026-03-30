@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS aircraft (
     last_vrate      SMALLINT,
     last_squawk     VARCHAR(4),
     is_on_ground    BOOLEAN         DEFAULT FALSE,
-    msg_count       BIGINT          DEFAULT 0
+    msg_count       BIGINT          DEFAULT 0,
+    last_pos_seen   TIMESTAMPTZ                     -- last time lat/lon was updated
 );
 
 CREATE INDEX IF NOT EXISTS idx_aircraft_last_seen ON aircraft (last_seen DESC);
