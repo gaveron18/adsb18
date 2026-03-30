@@ -40,6 +40,10 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], all
 pool: asyncpg.Pool = None
 ws_clients: list[WebSocket] = []
 
+# Track Pi message counter to compute messageRate
+_prev_pi_msgs: float = 0.0
+_prev_pi_time: float = 0.0
+
 _monitor_status: dict = {
     'ok': None,
     'checked_at': None,
@@ -176,6 +180,14 @@ async def aircraft_json():
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
         data = json.loads(stdout.decode())
         if isinstance(data.get('aircraft'), list):
+            global _prev_pi_msgs, _prev_pi_time
+            cur_msgs = data.get('messages', 0)
+            cur_time = data.get('now', time.time())
+            dt = cur_time - _prev_pi_time
+            if dt > 0.1 and _prev_pi_msgs > 0 and cur_msgs >= _prev_pi_msgs:
+                data['messageRate'] = round((cur_msgs - _prev_pi_msgs) / dt, 1)
+            _prev_pi_msgs = cur_msgs
+            _prev_pi_time = cur_time
             return JSONResponse(data)
     except Exception as e:
         log.warning(f'Pi proxy failed, using DB fallback: {e}')
