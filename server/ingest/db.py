@@ -207,6 +207,22 @@ def process_snapshot(data: dict, feeder_id: Optional[int] = None) -> int:
             except (TypeError, ValueError):
                 lon = None
 
+        # --- lastPosition fallback for Mode-S (no current lat/lon) ---
+        if (lat is None or lon is None):
+            last_pos = ac.get('lastPosition')
+            if last_pos and isinstance(last_pos, dict):
+                lp_lat = last_pos.get('lat')
+                lp_lon = last_pos.get('lon')
+                lp_seen = last_pos.get('seen_pos')
+                if lp_lat is not None and lp_lon is not None and lp_seen is not None:
+                    try:
+                        if float(lp_seen) < 120:
+                            lat = float(lp_lat)
+                            lon = float(lp_lon)
+                            seen_pos = lp_seen
+                    except (TypeError, ValueError):
+                        pass
+
         # --- Vertical rate ---
         baro_rate = ac.get('baro_rate')
         vertical_rate = None
@@ -220,6 +236,37 @@ def process_snapshot(data: dict, feeder_id: Optional[int] = None) -> int:
         squawk = ac.get('squawk')
         if squawk is not None:
             squawk = str(squawk).strip() or None
+
+        # --- Signal type ---
+        raw_type = ac.get('type', '') or ''
+        if raw_type.startswith('adsb'):
+            signal_type = 'adsb'
+        elif raw_type == 'mlat':
+            signal_type = 'mlat'
+        elif raw_type.startswith('tisb'):
+            signal_type = 'tisb'
+        elif raw_type == 'mode_s':
+            signal_type = 'mode_s'
+        elif raw_type.startswith('adsr'):
+            signal_type = 'adsr'
+        else:
+            signal_type = None
+
+        # --- RSSI ---
+        rssi = ac.get('rssi')
+        if rssi is not None:
+            try:
+                rssi = float(rssi)
+            except (TypeError, ValueError):
+                rssi = None
+
+        # --- Category ---
+        category = ac.get('category') or None
+
+        # --- Emergency ---
+        emergency = ac.get('emergency') or None
+        if emergency == 'none':
+            emergency = None
 
         # --- Timestamps ---
         seen = ac.get('seen', 0)
@@ -285,6 +332,10 @@ def process_snapshot(data: dict, feeder_id: Optional[int] = None) -> int:
                     vertical_rate,
                     squawk,
                     is_on_ground,
+                    signal_type,
+                    rssi,
+                    category,
+                    emergency,
                 ))
                 added += 1
 
@@ -335,8 +386,9 @@ async def _flush(batch: list[tuple]):
     pos_sql = """
         INSERT INTO positions
             (ts, icao, feeder_id, callsign, altitude, ground_speed, track,
-             lat, lon, vertical_rate, squawk, is_on_ground)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+             lat, lon, vertical_rate, squawk, is_on_ground,
+             signal_type, rssi, category, emergency)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
     """
     ac_sql = """
         INSERT INTO aircraft

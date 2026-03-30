@@ -286,16 +286,17 @@ async def archive(
         rows = await conn.fetch("""
             SELECT
                 icao,
-                MAX(callsign) AS callsign,
-                MIN(ts)       AS first_seen,
-                MAX(ts)       AS last_seen,
-                COUNT(*)      AS points,
-                MAX(altitude) AS max_altitude,
+                callsign,
+                MIN(ts)           AS first_seen,
+                MAX(ts)           AS last_seen,
+                COUNT(*)          AS points,
+                MAX(altitude)     AS max_altitude,
                 MAX(ground_speed) AS max_speed
             FROM positions
             WHERE ts BETWEEN $1 AND $2
               AND lat IS NOT NULL
-            GROUP BY icao
+              AND callsign IS NOT NULL
+            GROUP BY icao, callsign
             ORDER BY first_seen DESC
         """, t_from, t_to)
 

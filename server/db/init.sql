@@ -18,7 +18,10 @@ CREATE TABLE IF NOT EXISTS positions (
     vertical_rate   SMALLINT,                   -- ft/min, positive = climbing
     squawk          VARCHAR(4),                 -- transponder code
     is_on_ground    BOOLEAN         DEFAULT FALSE,
-    rssi            REAL,                       -- signal strength dBm (if available)
+    rssi            REAL,                       -- signal strength dBm
+    signal_type     VARCHAR(10),                -- adsb / mode_s / mlat / tisb / adsr
+    category        VARCHAR(4),                 -- ICAO category A0-C3
+    emergency       VARCHAR(16),                -- emergency status if not none
     PRIMARY KEY (id, ts)
 ) PARTITION BY RANGE (ts);
 
