@@ -4650,14 +4650,16 @@ function selectAllPlanes() {
 
     SelectedAllPlanes = true;
 
-    // disable this for the moment
-    if (0 && globeIndex) {
-        for (let i in g.planesOrdered) {
-            let plane = g.planesOrdered[i];
-            if (plane.visible && plane.inView) {
-                plane.processTrace();
-            }
+    // Load historical tracks from server for all visible planes
+    let traceList = [];
+    for (let i in g.planesOrdered) {
+        let plane = g.planesOrdered[i];
+        if (plane.visible) {
+            traceList.push(plane);
         }
+    }
+    if (traceList.length > 0) {
+        getTrace(null, null, {list: traceList});
     }
     refreshFeatures();
 

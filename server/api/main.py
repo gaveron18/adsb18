@@ -349,6 +349,62 @@ async def feeders():
     return [dict(r) for r in rows]
 
 
+# ── Trace files (tar1090 format for getTrace) ─────────────────────────────────
+
+@app.get('/data/traces/{last2}/{filename}')
+async def trace_json(last2: str, filename: str):
+    """
+    Serve historical tracks in tar1090 trace_full / trace_recent format.
+    URL: /data/traces/{hex[-2:]}/trace_full_{hex}.json
+         /data/traces/{hex[-2:]}/trace_recent_{hex}.json
+    """
+    # Parse filename: trace_full_ABC123.json or trace_recent_ABC123.json
+    name = filename
+    if name.endswith('.json'):
+        name = name[:-5]
+    is_recent = name.startswith('trace_recent_')
+    hex_part = name[len('trace_recent_'):] if is_recent else name[len('trace_full_'):]
+    icao = hex_part.upper().strip()
+
+    if len(icao) != 6:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail='Invalid ICAO')
+
+    hours = 2 if is_recent else 24
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT EXTRACT(EPOCH FROM ts)::double precision AS ts_epoch,
+                   lat, lon, altitude, ground_speed, track, vertical_rate
+            FROM positions
+            WHERE icao = $1
+              AND ts >= $2
+              AND lat IS NOT NULL AND lon IS NOT NULL
+            ORDER BY ts ASC
+            LIMIT 20000
+        """, icao, cutoff)
+
+    trace = []
+    for r in rows:
+        trace.append([
+            round(float(r['ts_epoch']), 1),   # absolute Unix ts (timestamp=0 so no offset)
+            round(float(r['lat']), 5),
+            round(float(r['lon']), 5),
+            r['altitude'],                     # int or None
+            r['ground_speed'],                 # int or None
+            r['track'],                        # int or None
+            0,                                 # flags (0 = normal)
+            r['vertical_rate'],                # int or None
+        ])
+
+    return JSONResponse({
+        'icao':      icao,
+        'timestamp': 0,       # normalizeTraceStamps adds this to each point[0]
+        'trace':     trace,
+    })
+
+
 # ── WebSocket broadcast ───────────────────────────────────────────────────────
 
 @app.websocket('/ws')
