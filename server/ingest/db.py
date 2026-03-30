@@ -330,17 +330,54 @@ async def writer_loop():
 
 
 async def _flush(batch: list[tuple]):
-    """Write position rows to positions table."""
+    """Write position rows to positions table and update aircraft last position."""
     pos_sql = """
         INSERT INTO positions
             (ts, icao, feeder_id, callsign, altitude, ground_speed, track,
              lat, lon, vertical_rate, squawk, is_on_ground)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
     """
+    ac_sql = """
+        INSERT INTO aircraft
+            (icao, last_seen, first_seen, last_callsign,
+             last_lat, last_lon, last_altitude, last_speed,
+             last_track, last_vrate, last_squawk, is_on_ground, msg_count)
+        VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,1)
+        ON CONFLICT (icao) DO UPDATE SET
+            last_seen     = EXCLUDED.last_seen,
+            last_callsign = COALESCE(EXCLUDED.last_callsign, aircraft.last_callsign),
+            last_lat      = COALESCE(EXCLUDED.last_lat,      aircraft.last_lat),
+            last_lon      = COALESCE(EXCLUDED.last_lon,      aircraft.last_lon),
+            last_altitude = COALESCE(EXCLUDED.last_altitude, aircraft.last_altitude),
+            last_speed    = COALESCE(EXCLUDED.last_speed,    aircraft.last_speed),
+            last_track    = COALESCE(EXCLUDED.last_track,    aircraft.last_track),
+            last_vrate    = COALESCE(EXCLUDED.last_vrate,    aircraft.last_vrate),
+            last_squawk   = COALESCE(EXCLUDED.last_squawk,   aircraft.last_squawk),
+            is_on_ground  = EXCLUDED.is_on_ground,
+            msg_count     = aircraft.msg_count + 1
+    """
     try:
         async with _pool.acquire() as conn:
             await conn.executemany(pos_sql, batch)
-        log.debug(f'Flushed {len(batch)} positions')
+            # Update aircraft last known position (one per unique ICAO)
+            seen: dict[str, tuple] = {}
+            for row in batch:
+                seen[row[1]] = row
+            for row in seen.values():
+                await conn.execute(ac_sql,
+                    row[1],   # icao
+                    row[0],   # ts
+                    row[3],   # callsign
+                    row[7],   # lat
+                    row[8],   # lon
+                    row[4],   # altitude
+                    row[5],   # speed
+                    row[6],   # track
+                    row[9],   # vrate
+                    row[10],  # squawk
+                    row[11],  # is_on_ground
+                )
+        log.debug(f'Flushed {len(batch)} positions, {len(seen)} aircraft updated')
     except Exception as e:
         log.error(f'DB flush error: {e}')
         global _batch
