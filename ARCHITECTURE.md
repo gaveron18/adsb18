@@ -226,3 +226,137 @@ gzip -k -f /home/new/adsb18/frontend/script.js
 # Изменения на Pi — через репо:
 bash /home/new/adsb18/feeder/update_pi.sh
 ```
+
+---
+
+## Зависимости и риски
+
+### db.py — центральный модуль, самый опасный для правок
+
+```
+enqueue() / process_snapshot()
+    ↓ обновляет
+_state[icao]
+    ↓ читается
+get_live_aircraft()  ←── используется в api/main.py (fallback aircraft.json)
+
+_batch[]  ←── только позиции с lat/lon
+    ↓
+writer_loop() → _flush()
+    ↓ пишет
+positions (INSERT)          ←── /api/history, /data/traces/, /globe_history/
+aircraft (UPSERT с lat/lon) ←── fallback aircraft.json, /api/aircraft
+
+_ac_batch[]  ←── ВСЕ борты включая Mode-S без позиции
+    ↓
+writer_loop() → _flush_aircraft()
+    ↓ пишет
+aircraft (UPSERT БЕЗ lat/lon)  ←── может затереть last_lat/last_lon!
+```
+
+**Риск 1 — _flush() vs _flush_aircraft() конфликт:**
+Два пути обновляют одну таблицу `aircraft`. Если `_flush_aircraft()` выполнится
+после `_flush()` — он перезапишет `last_lat/last_lon = NULL` (там нет координат).
+**Это уже случалось (2026-03-30) — все самолёты стояли на месте.**
+Правило: при любом изменении `_flush_aircraft()` проверять что lat/lon не затирается.
+
+**Риск 2 — Ghost filter сброс:**
+При отклонении позиции `_last_valid_pos[icao]` удаляется. Следующая позиция
+принимается безусловно. Если dump1090 выдаёт две подряд плохих позиции —
+вторая пройдёт фильтр. Не трогать MAX_SPEED_KTS без тестирования.
+
+**Риск 3 — retry при ошибке DB:**
+При ошибке flush: `_batch.extend(batch)` — батч возвращается в очередь.
+Если ошибка постоянная — память растёт бесконечно. Нет ограничения на размер.
+
+**Риск 4 — _last_pos_ts дедупликация (только JSON режим):**
+Если `pos_ts` не меняется между снапшотами — позиция не пишется в positions.
+Это правильно, но если время на Pi сбилось — можно потерять реальные позиции.
+
+---
+
+### api/main.py — зависимости
+
+```
+GET /data/aircraft.json
+    Primary: curl → Pi :30092 (SSH-туннель)
+    Fallback: SELECT aircraft WHERE last_seen > NOW()-120s
+                                              ↑
+                                     НЕЛЬЗЯ менять без согласования
+                                     (было 3600 → меняли на 120, борты пропали)
+
+WS /ws → ws_broadcaster() → вызывает aircraft_json()
+    ↓ та же логика primary/fallback
+
+GET /api/monitor → fetch Pi :30092
+    если туннель недоступен → monitor падает с ошибкой
+
+GET /data/traces/ и /globe_history/
+    → SELECT positions WHERE lat IS NOT NULL
+    → зависит от того что пишет _flush() в db.py
+```
+
+**Риск 5 — туннель Pi недоступен:**
+Если SSH-туннель упал → весь `aircraft.json` идёт из DB (устаревшие данные).
+Карта будет показывать борты но они не будут двигаться.
+Monitor покажет ошибку. Проверять: `sudo systemctl status adsb-tunnel`.
+
+**Риск 6 — окно fallback aircraft.json:**
+Сейчас 120 секунд. Если уменьшить — борты пропадают с карты при fallback.
+Если увеличить — карта показывает давно улетевшие борты.
+
+---
+
+### ingest/main.py — зависимости
+
+```
+handle_feeder()
+    SBS режим  → sbs_parser.parse() → store.enqueue()
+    JSON режим → json.loads()       → store.process_snapshot()
+
+register_feeder() → INSERT/UPDATE feeders таблица
+
+pool_ref[0]  ←── глобальная ссылка, устанавливается в main()
+    если store.set_pool() не вызван → writer_loop не пишет в DB (тихая ошибка)
+```
+
+**Риск 7 — AUTH таймаут:**
+Если Pi не прислал AUTH за 10 секунд — соединение закрывается.
+При высокой нагрузке на Pi это может случиться. Симптом: фидер постоянно
+переподключается, в логах "no AUTH received in 10s".
+
+---
+
+### feeder.py (Pi) — зависимости
+
+```
+read_dump1090() → queue → send_to_server()
+                        ↓ при обрыве
+                  disk_spooler() → feeder_buffer.sbs
+
+при reconnect: replay_buffer() → send_to_server() → live queue
+```
+
+**Риск 8 — буфер переполнен:**
+Если Pi офлайн > времени для накопления 200 МБ — старые сообщения теряются.
+200 МБ ≈ несколько часов при нормальном трафике.
+
+**Риск 9 — replay блокирует live данные:**
+Во время replay буфера live данные идут в queue но не отправляются на сервер
+(send_to_server занят replay). Queue ограничен 10000 сообщений — при переполнении
+новые SBS строки теряются.
+
+---
+
+### PostgreSQL — зависимости
+
+```
+positions (партиции по месяцам)
+    create_monthly_partition() — вызывается автоматически (partition_watchdog, раз в сутки)
+    drop_old_partitions()      — НЕ вызывается автоматически! Диск растёт бесконечно.
+```
+
+**Риск 10 — диск заполнится:**
+`drop_old_partitions()` есть в коде но нигде не вызывается.
+Нужен cron: `SELECT drop_old_partitions('positions', 6);` раз в месяц.
+
