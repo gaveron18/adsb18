@@ -30,38 +30,9 @@ DB_DSN = os.getenv('DATABASE_URL', 'postgresql://adsb:adsb@postgres:5432/adsb18'
 PI_SSH_CMD = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=5',
               '-p', '52222', 'ads-b@127.0.0.1']
 
-MONITOR_INTERVAL = 30    # seconds between checks
-MONITOR_WINDOW   = 3600  # 1 hour — match tar1090 chunk history
-
-# Script sent to Pi via stdin: reads tar1090 gz chunks from last MONITOR_WINDOW, returns {hex: type} JSON
-_PI_CHUNKS_SCRIPT = """
-import glob, gzip, json, os, time
-cutoff = time.time() - {window}
-chunks = [f for f in glob.glob('/run/tar1090/chunk_*.gz') if os.path.getmtime(f) >= cutoff]
-for extra in ['/run/tar1090/current_large.gz', '/run/tar1090/current_small.gz']:
-    chunks.append(extra)
-hexes = {{}}
-for f in chunks:
-    try:
-        raw = gzip.open(f).read().decode()
-        for line in raw.strip().split('\\n'):
-            line = line.strip().rstrip(',')
-            if not line:
-                continue
-            try:
-                d = json.loads(line)
-                for a in d.get('aircraft', []):
-                    if isinstance(a, list) and len(a) > 0:
-                        h = a[0].lower().strip()
-                        t = a[7] if len(a) > 7 else ''
-                        if h and h not in hexes:
-                            hexes[h] = t or ''
-            except Exception:
-                pass
-    except Exception:
-        pass
-print(json.dumps(hexes))
-""".format(window=MONITOR_WINDOW).encode()
+MONITOR_INTERVAL = 30   # seconds between checks
+MONITOR_SERVER_WINDOW = 120  # server window: aircraft seen in last N seconds
+PI_AIRCRAFT_URL = os.getenv('PI_AIRCRAFT_URL', 'http://127.0.0.1:30092/tar1090/data/aircraft.json')
 
 app = FastAPI(title='adsb18 API', docs_url='/api/docs')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
@@ -94,16 +65,21 @@ def _classify_type(raw_type: str) -> str:
     return 'other'
 
 
-async def _fetch_pi_chunks() -> dict[str, str]:
-    """SSH to Pi, run chunk-reader script, return {hex: raw_type}."""
+async def _fetch_pi_live() -> dict[str, str]:
+    """Fetch Pi's live aircraft.json via HTTP tunnel, return {hex: raw_type}."""
     proc = await asyncio.create_subprocess_exec(
-        *PI_SSH_CMD, 'python3',
-        stdin=asyncio.subprocess.PIPE,
+        'curl', '-s', '--max-time', '5', PI_AIRCRAFT_URL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
-    stdout, _ = await asyncio.wait_for(proc.communicate(input=_PI_CHUNKS_SCRIPT), timeout=15)
-    return json.loads(stdout.decode())
+    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+    data = json.loads(stdout.decode())
+    hexes = {}
+    for ac in data.get('aircraft', []):
+        h = ac.get('hex', '').lower().strip()
+        if h and len(h) == 6:
+            hexes[h] = ac.get('type', '') or ''
+    return hexes
 
 
 async def monitor_task():
@@ -112,8 +88,8 @@ async def monitor_task():
     await asyncio.sleep(5)  # wait for pool to be ready
     while True:
         try:
-            # 1. Fetch all unique aircraft from Pi tar1090 chunks (last ~1 hour)
-            pi_hexes = await _fetch_pi_chunks()  # {hex: raw_type}
+            # 1. Fetch Pi's LIVE aircraft.json right now
+            pi_hexes = await _fetch_pi_live()  # {hex: raw_type}
 
             # Count by signal type
             by_type: dict[str, int] = {}
@@ -121,15 +97,15 @@ async def monitor_task():
                 t = _classify_type(raw_t)
                 by_type[t] = by_type.get(t, 0) + 1
 
-            # 2. Fetch server aircraft seen in last MONITOR_WINDOW seconds
-            cutoff = datetime.now(timezone.utc) - timedelta(seconds=MONITOR_WINDOW)
+            # 2. Server: aircraft seen in last MONITOR_SERVER_WINDOW seconds
+            cutoff = datetime.now(timezone.utc) - timedelta(seconds=MONITOR_SERVER_WINDOW)
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     "SELECT icao FROM aircraft WHERE last_seen >= $1", cutoff
                 )
             server_hexes = {r['icao'].lower().strip() for r in rows}
 
-            # 3. Missing = all Pi aircraft (ADS-B + Mode-S) not on server
+            # 3. Missing = Pi live aircraft not on server
             missing = sorted(set(pi_hexes.keys()) - server_hexes)
 
             _monitor_status = {
@@ -142,7 +118,7 @@ async def monitor_task():
             }
 
             if missing:
-                log.warning(f'Monitor: {len(missing)} aircraft on Pi missing from server: {missing}')
+                log.warning(f'Monitor: {len(missing)} missing from server: {missing}')
 
         except Exception as e:
             log.error(f'Monitor error: {e}')
