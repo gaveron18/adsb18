@@ -440,3 +440,189 @@ aircraft_json()
    asyncio однопоточный поэтому окей, но нельзя добавлять threading.
 
 4. `store.set_pool()` должен быть вызван до старта `writer_loop()` — иначе тихая ошибка, данные не пишутся.
+
+---
+
+## Фронтенд — логика и поведение
+
+### Два режима (две страницы)
+
+| Страница | Карта | Данные | Назначение |
+|----------|-------|--------|------------|
+| `index.html` | OpenLayers 8.2.0 | HTTP polling каждые ~1с | Живая карта самолётов |
+| `archive.html` | Leaflet | REST API по периоду | Архив рейсов за дату |
+
+---
+
+### Главный цикл (index.html)
+
+```
+setInterval(fetchData, refreshMs)   ← каждые ~1000ms
+    ↓ GET /data/aircraft.json
+    ↓ fetchDone(data)
+    ↓ processReceiverUpdate(data)
+        ↓ для каждого борта:
+        ↓ processAircraft(ac, init)
+            ↓ plane.updateData(now, last, data)
+            ↓ обновить иконку / трек на карте
+    ↓ обновить таблицу бортов
+    ↓ обновить счётчики
+```
+
+**При ошибке fetch:**
+- `fetchFail()` → показать сообщение об ошибке в UI
+- `StaleReceiverCount++` → если > 5 подряд → предупреждение "данные устарели"
+- При 5 подряд "время идёт назад" → полный reset данных + cache busting (`?timestamp` к URL)
+
+---
+
+### Объект PlaneObject (planeObject.js)
+
+Каждый борт — это объект со следующими группами полей:
+
+```javascript
+// Идентификация
+icao, flight, registration, country
+
+// Позиция и движение
+position [lon, lat], altitude, alt_baro, alt_geom
+track, gs, ias, tas, vertical_rate
+
+// Сигнал
+rssi, seen, seen_pos, messages, signal_type
+
+// Визуализация
+marker          // ol.Feature — иконка на карте
+markerStyle     // ol.Style — цвет + поворот по track
+track_linesegs  // линия трека (массив сегментов)
+elastic_feature // эластичная линия (интерполяция)
+visible         // отображать ли борт
+```
+
+**Цвета иконок по высоте:**
+```
+На земле          → серый/коричневый
+0–5 000 ft        → красный
+5 000–10 000 ft   → оранжевый
+10 000–15 000 ft  → жёлтый
+15 000–20 000 ft  → зелёный
+20 000–25 000 ft  → голубой
+25 000–35 000 ft  → синий
+> 35 000 ft       → фиолетовый
+```
+
+Иконки кешируются в `iconCache[altitude_range + rotation]`.
+
+---
+
+### Карта — слои (layers.js)
+
+```
+Base Layers (один активен):
+  OpenStreetMap, CARTO, ESRI, OpenFreeMap, NASA GIBS, Bing Maps
+
+Overlay Layers (поверх):
+  iconLayer         — иконки самолётов
+  trailLayers       — треки (ol.layer.Group)
+  siteCircleLayer   — кружок вокруг приёмника
+  Heatmap, Range outline, openAIP, TFR, NEXRAD, RainViewer, ...
+```
+
+---
+
+### Клик на самолёт
+
+```
+click на карте
+    → OLMap.forEachFeatureAtPixel()    найти feature под курсором
+    → feature.getId()                  получить ICAO
+    → selectPlaneByHex(icao)
+        → SelectedPlane = g.planes[icao]
+        → updateSelectedInfo()         обновить info-панель справа
+        → подсветить иконку на карте
+
+Двойной клик:
+    → follow mode — карта следует за самолётом
+    → zoom: 8
+
+Info-панель показывает:
+    ICAO, позывной, регистрацию, тип ВС, высоту,
+    скорость, курс, squawk, маршрут (если доступен),
+    ветер (вычисляется из TAS/GS/heading),
+    флаги: Military, PIA, LADD
+```
+
+---
+
+### Таблица бортов
+
+- По умолчанию **80 строк** (настраивается до "все")
+- Сортируется по любой колонке
+- Обновляется в `everySecond()` каждые ~850ms
+- Колонки: ICAO, Callsign, Type, Altitude, Speed, Track, Msgs, Seen, RSSI
+- Клик на строку → `selectPlaneByHex()` → тот же что и клик на карте
+
+---
+
+### Архив (archive.html)
+
+**Интерфейс:**
+- Выбор периода: datetime-local inputs с поддержкой timezone
+- Timezone пресеты: UTC, Ижевск (UTC+4), Пермь (UTC+5)
+- Сохраняется в `localStorage['adsb18_tz']`
+
+**API запросы:**
+```
+1. GET /api/archive?from=ISO&to=ISO
+   → список рейсов: [{icao, callsign, first_seen, last_seen, max_altitude, max_speed, points}]
+
+2. GET /api/history?icao=ABC&from=ISO&to=ISO&limit=10000
+   → позиции рейса: [{lat, lon, altitude, ground_speed, ts, track}]
+
+3. DELETE /api/flight?icao=ABC&from=ISO&to=ISO
+   → удалить рейс из архива (с подтверждением)
+```
+
+**Карта архива:**
+- Leaflet (не OpenLayers!)
+- Трек: polyline + circle markers каждые N км
+- Старт: зелёный кружок, финиш: красный кружок со стрелкой
+- Несколько треков одновременно разными цветами
+
+---
+
+### WebSocket (/ws)
+
+**НЕ используется фронтендом.** Все данные через HTTP GET polling.
+WebSocket эндпоинт существует на сервере но браузер его не подключает.
+Можно использовать в будущем для снижения задержки.
+
+---
+
+### Зависимости фронтенд → API
+
+| Что | Endpoint | Когда |
+|-----|----------|-------|
+| Живые борты | `GET /data/aircraft.json` | каждые ~1с |
+| Конфиг приёмника | `GET /data/receiver.json` | при старте |
+| Трек живого борта | `GET /data/traces/{last2}/trace_full_{icao}.json` | при клике |
+| Список рейсов архива | `GET /api/archive?from=&to=` | по кнопке |
+| История рейса | `GET /api/history?icao=&from=&to=` | при выборе рейса |
+| Удалить рейс | `DELETE /api/flight` | по кнопке |
+
+---
+
+### Риски фронтенда
+
+**Риск 11 — gzip кеш nginx:**
+После изменения любого JS файла обязательно:
+`gzip -k -f /home/new/adsb18/frontend/script.js`
+Иначе nginx отдаёт старый `.gz` и браузер не видит изменений.
+
+**Риск 12 — Leaflet vs OpenLayers:**
+Live карта использует OpenLayers, архив — Leaflet.
+Это разные библиотеки с разными API. Не путать при правках.
+
+**Риск 13 — cache busting:**
+При "времени идущем назад" фронтенд добавляет `?timestamp` к URL.
+Если это происходит постоянно — значит сервер отдаёт устаревшие данные.
