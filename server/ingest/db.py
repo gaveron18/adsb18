@@ -259,9 +259,10 @@ def process_snapshot(data: dict, feeder_id: Optional[int] = None) -> int:
         s['feeder_id'] = feeder_id
 
         # --- Always record aircraft seen time (including Mode-S without position) ---
+        pi_messages = int(ac.get('messages', 0))
         _ac_batch.append((
             pos_ts, icao, callsign, altitude, ground_speed, track,
-            vertical_rate, squawk, is_on_ground,
+            vertical_rate, squawk, is_on_ground, pi_messages,
         ))
 
         # --- Add to _batch only if there is a new position ---
@@ -391,7 +392,7 @@ async def _flush_aircraft(ac_batch: list[tuple]):
             (icao, last_seen, first_seen, last_callsign,
              last_lat, last_lon, last_altitude, last_speed,
              last_track, last_vrate, last_squawk, is_on_ground, msg_count)
-        VALUES ($1,$2,$2,$3,NULL,NULL,$4,$5,$6,$7,$8,$9,1)
+        VALUES ($1,$2,$2,$3,NULL,NULL,$4,$5,$6,$7,$8,$9,$10)
         ON CONFLICT (icao) DO UPDATE SET
             last_seen     = EXCLUDED.last_seen,
             last_callsign = COALESCE(EXCLUDED.last_callsign, aircraft.last_callsign),
@@ -401,7 +402,7 @@ async def _flush_aircraft(ac_batch: list[tuple]):
             last_vrate    = COALESCE(EXCLUDED.last_vrate,    aircraft.last_vrate),
             last_squawk   = COALESCE(EXCLUDED.last_squawk,   aircraft.last_squawk),
             is_on_ground  = EXCLUDED.is_on_ground,
-            msg_count     = aircraft.msg_count + 1
+            msg_count     = GREATEST(aircraft.msg_count, EXCLUDED.msg_count)
     """
     # Deduplicate — keep last record per ICAO
     seen: dict[str, tuple] = {}
@@ -420,6 +421,7 @@ async def _flush_aircraft(ac_batch: list[tuple]):
                     row[6],  # vrate
                     row[7],  # squawk
                     row[8],  # is_on_ground
+                    row[9],  # pi_messages
                 )
         log.debug(f'Flushed {len(seen)} aircraft (Mode-S included)')
     except Exception as e:
