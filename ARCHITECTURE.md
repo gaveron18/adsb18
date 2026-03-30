@@ -360,3 +360,83 @@ positions (партиции по месяцам)
 `drop_old_partitions()` есть в коде но нигде не вызывается.
 Нужен cron: `SELECT drop_old_partitions('positions', 6);` раз в месяц.
 
+
+---
+
+## Зависимости внутри кода
+
+### db.py — вызовы функций
+
+```
+enqueue(msg)
+    → _merge(icao, msg)          — обновляет _state[icao]
+    → _batch.append(...)         — добавляет позицию
+
+process_snapshot(data)
+    → _state[icao]               — обновляет напрямую
+    → _valid_position()          — ghost filter
+    → _batch.append(...)         — позиции с lat/lon
+    → _ac_batch.append(...)      — все борты включая Mode-S
+
+writer_loop()                    — каждые 2с
+    → _flush(_batch)             — INSERT positions + UPSERT aircraft С lat/lon
+    → _flush_aircraft(_ac_batch) — UPSERT aircraft БЕЗ lat/lon
+
+get_live_aircraft()
+    → читает _state[icao]        — используется в api как fallback
+```
+
+### db.py — общие переменные (разделяются между функциями)
+
+```
+_state          — enqueue, process_snapshot, get_live_aircraft
+_batch          — enqueue, process_snapshot, writer_loop, _flush
+_ac_batch       — process_snapshot, writer_loop, _flush_aircraft
+_last_valid_pos — _valid_position (ghost filter)
+_last_pos_ts    — process_snapshot (дедупликация JSON режима)
+_pool           — set_pool, _flush, _flush_aircraft, ensure_partitions
+```
+
+### ingest/main.py — вызовы
+
+```
+main()
+    → store.set_pool(pool)          — БЕЗ этого writer_loop не пишет в DB
+    → store.writer_loop()           — фоновая задача
+    → store.partition_watchdog()    — фоновая задача
+    → asyncio.start_server(handle_feeder)
+
+handle_feeder()
+    → register_feeder()             — upsert в feeders
+    → store.enqueue()               — SBS режим
+    → store.process_snapshot()      — JSON режим
+    → _update_feeder_stats()        — счётчик сообщений
+```
+
+### api/main.py — вызовы
+
+```
+ws_broadcaster()
+    → aircraft_json()       — та же функция что GET /data/aircraft.json
+                              любая ошибка в aircraft_json ломает WebSocket
+
+monitor_task()
+    → _fetch_pi_live()      — curl Pi :30092
+    → SELECT aircraft       — сравнивает с DB
+
+aircraft_json()
+    → curl Pi :30092        — primary
+    → SELECT aircraft       — fallback (окно 120с, не менять!)
+```
+
+### Самые опасные связи
+
+1. `_flush()` и `_flush_aircraft()` — обе пишут в таблицу `aircraft` но с разными полями.
+   `_flush_aircraft()` не обновляет lat/lon — если выполнится после `_flush()` может затереть координаты.
+
+2. `ws_broadcaster()` → `aircraft_json()` — любая ошибка в `aircraft_json` ломает WebSocket для всех клиентов.
+
+3. `_state[icao]` — общая память для всех фидеров без блокировок.
+   asyncio однопоточный поэтому окей, но нельзя добавлять threading.
+
+4. `store.set_pool()` должен быть вызван до старта `writer_loop()` — иначе тихая ошибка, данные не пишутся.
