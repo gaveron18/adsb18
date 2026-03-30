@@ -336,7 +336,7 @@ HideCols = [
 // routeDisplay = 'iata';
 // which routeApi service to use
 // routeApiUrl = "https://adsb.im/api/0/routeset";
-// routeApiUrl = "https://api.adsb.lol/api/0/routeset";
+// routeApiUrl = ""; // disabled: external service unavailable
 // routeApiUrl = ""; // to disable route API so it can't be enabled by a website visitor
 
 // show a link to jetphotos, only works if planespottersAPI is disabled
@@ -446,7 +446,7 @@ tableColors = {
 
 // Route API (flight routes)
 useRouteAPI = true;
-routeApiUrl = "https://api.adsb.lol/api/0/routeset";
+routeApiUrl = ""; // disabled: external service unavailable
 routeDisplay = 'iata';
 
 // Aircraft photos from planespotters.net
