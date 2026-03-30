@@ -12,3 +12,13 @@ build/
 *.sqlite
 node_modules/
 .DS_Store
+
+# Generated/compiled files
+*.gz
+*.bak
+
+# Documents
+*.docx
+
+# Frontend download page (embedded document, not part of project)
+frontend/download.html
