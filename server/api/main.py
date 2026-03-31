@@ -309,10 +309,18 @@ async def history_bulk(payload: BulkHistoryRequest):
                        WHERE icao = $1 AND ts BETWEEN $2 AND $3
                          AND lat IS NOT NULL AND lon IS NOT NULL
                        ORDER BY ts
-                       LIMIT $4""",
-                    icao, t_from, t_to, limit
+                       LIMIT 10000""",
+                    icao, t_from, t_to
                 )
-        return icao, rows
+        if not rows:
+            return icao, []
+        # Decimate: evenly sample `limit` points across the full track
+        if len(rows) <= limit:
+            return icao, rows
+        step = len(rows) / limit
+        decimated = [rows[int(i * step)] for i in range(limit - 1)]
+        decimated.append(rows[-1])  # always include last point
+        return icao, decimated
 
     pairs = await asyncio.gather(*[fetch_one(f) for f in payload.flights])
     result = {}

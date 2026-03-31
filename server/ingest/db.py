@@ -24,6 +24,9 @@ MAX_SPEED_KTS = 800   # above this speed the position jump is physically impossi
 # Last recorded pos_ts per ICAO — used to skip duplicate position writes
 _last_pos_ts: dict[str, datetime] = {}
 
+# Last recorded (lat, lon) per ICAO — used to skip frozen positions
+_last_pos: dict[str, tuple] = {}  # icao → (lat, lon)
+
 
 
 def _valid_position(icao: str, lat: float, lon: float, ts: datetime) -> bool:
@@ -321,12 +324,13 @@ def process_snapshot(data: dict, feeder_id: Optional[int] = None) -> int:
             vertical_rate, squawk, is_on_ground, pi_messages,
         ))
 
-        # --- Add to _batch only if there is a new position ---
-        # Rows without lat/lon are useless in the positions table.
-        # Rows with the same pos_ts as last time are duplicates (aircraft not heard since).
+        # --- Add to _batch only if position changed ---
+        # Skip if lat/lon missing, or if coordinates identical to last recorded
+        # (frozen position: aircraft stationary, readsb keeps sending same coords).
         if lat is not None and lon is not None:
-            prev_ts = _last_pos_ts.get(icao)
-            if prev_ts is None or pos_ts != prev_ts:
+            prev_pos = _last_pos.get(icao)
+            if prev_pos is None or prev_pos != (lat, lon):
+                _last_pos[icao] = (lat, lon)
                 _last_pos_ts[icao] = pos_ts
                 _batch.append((
                     pos_ts,
