@@ -643,7 +643,7 @@ async function selectVisible() {
         const r = await fetch('/api/history/bulk', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ flights, limit_per_flight: 300 }),
+            body: JSON.stringify({ flights, limit_per_flight: 50 }),
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const data = await r.json();
@@ -666,7 +666,6 @@ async function selectVisible() {
             activeTracks.set(icao, { layer, color, f, el, valid });
             loaded++;
         });
-
         prog.textContent = loaded + '/' + items.length;
     } catch(e) {
         console.error('bulk load error:', e);
