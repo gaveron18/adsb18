@@ -109,6 +109,11 @@ def enqueue(msg: SBSMessage, feeder_id: Optional[int] = None):
     s = _merge(msg.icao, msg, feeder_id)
     if not s.get('ts'):
         return
+    # Only write to positions if we have valid coordinates.
+    # SBS messages without lat/lon (MSG,1 callsign; MSG,4 speed) still update
+    # _state but must not pollute the positions table with NULL rows.
+    if s.get('lat') is None or s.get('lon') is None:
+        return
     _batch.append((
         s['ts'],
         s['icao'],
