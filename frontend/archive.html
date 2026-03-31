@@ -216,6 +216,7 @@ L.Icon.Default.mergeOptions({
     iconRetinaUrl: 'libs/leaflet/marker-icon.png',
 });
 
+const _cr = L.canvas({ padding: 0.5 });
 const map = L.map('map').setView([57.914, 56.218], 8);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap', maxZoom: 18
@@ -283,16 +284,16 @@ function samplePoints(valid, distKm) {
 function buildTrackLayer(valid, f, color) {
     const cs = (f.callsign || f.icao).trim();
     const layers = [];
-    layers.push(L.polyline(valid.map(p => [p.lat, p.lon]), { color, weight: 3, opacity: 0.85 }));
+    layers.push(L.polyline(valid.map(p => [p.lat, p.lon]), { color, weight: 3, opacity: 0.85, renderer: _cr }));
     samplePoints(valid, dotInterval).forEach(p => {
         const alt = p.altitude     ? ft2m(p.altitude)          : '—';
         const spd = p.ground_speed ? p.ground_speed + ' уз'    : '—';
         layers.push(L.circleMarker([p.lat, p.lon], {
-            radius: 4, color: '#fff', fillColor: color, weight: 1.5, fillOpacity: 0.9,
+            radius: 4, color: '#fff', fillColor: color, weight: 1.5, fillOpacity: 0.9, renderer: _cr,
         }).bindTooltip(`<b>${cs}</b><br>⏱ ${fmtTime(p.ts)}<br>↑ ${alt} &nbsp;➤ ${spd}`));
     });
     layers.push(L.circleMarker([valid[0].lat, valid[0].lon], {
-        radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1,
+        radius: 6, fillColor: '#00cc50', color, weight: 2, fillOpacity: 1, renderer: _cr,
     }).bindTooltip(`<b>${cs}</b><br>▶ ${fmtTime(f.first_seen)}`));
     const last = valid[valid.length - 1];
     const heading = getEndHeading(valid);
