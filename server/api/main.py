@@ -21,6 +21,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -268,6 +269,56 @@ async def history(
         """, icao, t_from, t_to, limit)
 
     return [dict(r) for r in rows]
+
+
+
+# Bulk History API
+
+class _FlightReq(BaseModel):
+    icao: str
+    from_ts: str
+    to_ts: str
+
+class BulkHistoryRequest(BaseModel):
+    flights: list[_FlightReq]
+    limit_per_flight: int = 300
+
+
+@app.post('/api/history/bulk')
+async def history_bulk(payload: BulkHistoryRequest):
+    """Bulk track history for multiple flights.
+    One DB connection, sequential queries.
+    Returns: {icao: [points], ...}
+    """
+    limit = min(max(1, payload.limit_per_flight), 2000)
+    result: dict[str, list] = {}
+
+    async with pool.acquire() as conn:
+        for f in payload.flights:
+            icao = f.icao.upper().strip()
+            try:
+                t_from = datetime.fromisoformat(f.from_ts)
+                t_to   = datetime.fromisoformat(f.to_ts)
+            except ValueError:
+                continue
+            rows = await conn.fetch(
+                """SELECT ts, lat, lon, altitude, ground_speed, track,
+                          vertical_rate, squawk, callsign, is_on_ground
+                   FROM positions
+                   WHERE icao = $1 AND ts BETWEEN $2 AND $3
+                     AND lat IS NOT NULL AND lon IS NOT NULL
+                   ORDER BY ts
+                   LIMIT $4""",
+                icao, t_from, t_to, limit
+            )
+            if rows:
+                result[icao] = [
+                    {k: (v.isoformat() if hasattr(v, 'isoformat') else v)
+                     for k, v in dict(r).items()}
+                    for r in rows
+                ]
+
+    return JSONResponse(result)
 
 
 @app.get('/api/aircraft')

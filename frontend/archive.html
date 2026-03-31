@@ -620,32 +620,62 @@ function removeTrack(icao, el) {
     else fitAll();
 }
 
-// ── Bulk select ───────────────────────────────────────────────────────────────
+// -- Bulk select (uses /api/history/bulk - one request for all flights) ----------
 async function selectVisible() {
     const items = [...document.querySelectorAll('.flight-item')]
         .filter(el => el.style.display !== 'none' && !activeTracks.has(el.dataset.icao));
     if (!items.length) return;
 
     const prog = document.getElementById('loadProgress');
-    let done = 0;
-    prog.textContent = `0/${items.length}`;
+    prog.textContent = '...';
     prog.style.display = '';
 
-    await Promise.all(items.map(el => {
-        const cb = el.querySelector('.fi-check');
-        if (cb.checked) return Promise.resolve();
-        cb.checked = true;
-        // Get f and color from the change handler's closure via dataset
-        const f     = { icao: el.dataset.icao, callsign: el.dataset.callsign,
-                        first_seen: el.dataset.first, last_seen: el.dataset.last };
-        const color = el.dataset.color;
-        return addTrack(f, el, color, true).then(() => {
-            done++;
-            prog.textContent = `${done}/${items.length}`;
-        });
+    // Check all checkboxes immediately (visual feedback)
+    items.forEach(el => { el.querySelector('.fi-check').checked = true; el.classList.add('active'); });
+
+    const flights = items.map(el => ({
+        icao:    el.dataset.icao,
+        from_ts: el.dataset.first,
+        to_ts:   el.dataset.last,
     }));
 
-    prog.style.display = 'none';
+    try {
+        const r = await fetch('/api/history/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ flights, limit_per_flight: 300 }),
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+
+        let loaded = 0;
+        items.forEach(el => {
+            const icao  = el.dataset.icao;
+            const pts   = data[icao];
+            if (!pts || !pts.length) {
+                el.querySelector('.fi-check').checked = false;
+                el.classList.remove('active');
+                return;
+            }
+            const f     = { icao, callsign: el.dataset.callsign,
+                            first_seen: el.dataset.first, last_seen: el.dataset.last };
+            const color = el.dataset.color;
+            const valid = pts.filter(p => p.lat != null && p.lon != null);
+            if (!valid.length) { el.querySelector('.fi-check').checked = false; el.classList.remove('active'); return; }
+            const layer = buildTrackLayer(valid, f, color).addTo(map);
+            activeTracks.set(icao, { layer, color, f, el, valid });
+            loaded++;
+        });
+
+        prog.textContent = loaded + '/' + items.length;
+    } catch(e) {
+        console.error('bulk load error:', e);
+        items.forEach(el => { el.querySelector('.fi-check').checked = false; el.classList.remove('active'); });
+        prog.textContent = 'err';
+    } finally {
+        setTimeout(() => { prog.style.display = 'none'; }, 1500);
+    }
+
     fitAll();
 }
 
