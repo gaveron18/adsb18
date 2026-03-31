@@ -624,7 +624,7 @@ function removeTrack(icao, el) {
 async function selectVisible() {
     const items = [...document.querySelectorAll('.flight-item')]
         .filter(el => el.style.display !== 'none' && !activeTracks.has(el.dataset.icao));
-    if (!items.length) return;
+    if (!items.length) { fitAll(); return; }
 
     const prog = document.getElementById('loadProgress');
     prog.textContent = '...';
@@ -693,7 +693,7 @@ function clearAll() {
 function fitAll() {
     const all = [];
     activeTracks.forEach(t => t.valid.forEach(p => all.push([p.lat, p.lon])));
-    if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [120, 120] });
+    if (all.length) map.fitBounds(L.latLngBounds(all), { padding: [40, 40] });
 }
 
 // ── Info panel ────────────────────────────────────────────────────────────────
