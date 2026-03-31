@@ -287,39 +287,44 @@ class BulkHistoryRequest(BaseModel):
 @app.post('/api/history/bulk')
 async def history_bulk(payload: BulkHistoryRequest):
     """Bulk track history for multiple flights.
-    One DB connection, sequential queries.
+    Parallel queries (semaphore = pool size).
     Returns: {icao: [points], ...}
     """
     limit = min(max(1, payload.limit_per_flight), 2000)
-    result: dict[str, list] = {}
+    sem = asyncio.Semaphore(10)
 
-    async with pool.acquire() as conn:
-        for f in payload.flights:
-            icao = f.icao.upper().strip()
-            try:
-                t_from = datetime.fromisoformat(f.from_ts)
-                t_to   = datetime.fromisoformat(f.to_ts)
-            except ValueError:
-                continue
-            rows = await conn.fetch(
-                """SELECT ts, lat, lon, altitude, ground_speed, track,
-                          vertical_rate, squawk, callsign, is_on_ground
-                   FROM positions
-                   WHERE icao = $1 AND ts BETWEEN $2 AND $3
-                     AND lat IS NOT NULL AND lon IS NOT NULL
-                   ORDER BY ts
-                   LIMIT $4""",
-                icao, t_from, t_to, limit
-            )
-            if rows:
-                result[icao] = [
-                    {k: (v.isoformat() if hasattr(v, 'isoformat') else v)
-                     for k, v in dict(r).items()}
-                    for r in rows
-                ]
+    async def fetch_one(f):
+        icao = f.icao.upper().strip()
+        try:
+            t_from = datetime.fromisoformat(f.from_ts)
+            t_to   = datetime.fromisoformat(f.to_ts)
+        except ValueError:
+            return icao, []
+        async with sem:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """SELECT ts, lat, lon, altitude, ground_speed, track,
+                              vertical_rate, squawk, callsign, is_on_ground
+                       FROM positions
+                       WHERE icao = $1 AND ts BETWEEN $2 AND $3
+                         AND lat IS NOT NULL AND lon IS NOT NULL
+                       ORDER BY ts
+                       LIMIT $4""",
+                    icao, t_from, t_to, limit
+                )
+        return icao, rows
+
+    pairs = await asyncio.gather(*[fetch_one(f) for f in payload.flights])
+    result = {}
+    for icao, rows in pairs:
+        if rows:
+            result[icao] = [
+                {k: (v.isoformat() if hasattr(v, 'isoformat') else v)
+                 for k, v in dict(r).items()}
+                for r in rows
+            ]
 
     return JSONResponse(result)
-
 
 @app.get('/api/aircraft')
 async def aircraft_list(hours: int = Query(24, le=168)):
