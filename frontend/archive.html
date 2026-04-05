@@ -201,14 +201,14 @@
         .dist-toggle-btn:hover { background: #0f3460; }
         .dist-toggle-btn.active { background: #0f3460; border-color: #81d4fa; color: #81d4fa; }
 
-        /* ── Distance label on map ── */
-        .dist-label {
-            background: rgba(15,52,96,.85); border: 1px solid #4fc3f7;
-            border-radius: 4px; padding: 3px 7px; font-size: 11px; color: #e0e0e0;
-            white-space: nowrap; line-height: 1.6; pointer-events: none;
+        /* ── Distance marker at closest point ── */
+        .dist-marker {
+            background: rgba(10,10,20,.82); border: 1px solid #fff;
+            border-radius: 10px; padding: 2px 8px;
+            font-size: 13px; font-weight: bold; color: #fff;
+            white-space: nowrap; cursor: default;
+            box-shadow: 0 1px 4px rgba(0,0,0,.7);
         }
-        .dist-label .dl-horiz { color: #81d4fa; }
-        .dist-label .dl-slant { color: #ffcc80; }
 
         .check-result {
             position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 2000;
@@ -1117,7 +1117,7 @@ function recalcDistances() {
         const pt = pointsData.find(p => p.id === pointId);
         if (!pt) return;
 
-        activeTracks.forEach(({valid, color}) => {
+        activeTracks.forEach(({valid, color, f}) => {
             if (!valid.length) return;
 
             // Ближайшая точка трека
@@ -1140,24 +1140,28 @@ function recalcDistances() {
             // Пунктирная линия
             const polyline = L.polyline(
                 [[pt.lat, pt.lon], [closest.lat, closest.lon]],
-                { color, weight: 1.5, dashArray: '6 6', opacity: 0.85 }
+                { color, weight: 2, dashArray: '6 5', opacity: 0.9 }
             ).addTo(map);
 
-            // Подпись посередине линии
-            const midLat = (pt.lat + closest.lat) / 2;
-            const midLon = (pt.lon + closest.lon) / 2;
-            const labelMarker = L.marker([midLat, midLon], {
+            // Маркер на ближайшей точке трека с читабельной цифрой
+            const callsign = (f.callsign || '').trim() || f.icao;
+            const timeStr  = closest.ts ? fmtTime(closest.ts) : '—';
+            const labelMarker = L.marker([closest.lat, closest.lon], {
                 icon: L.divIcon({
                     className: '',
-                    html: `<div class="dist-label">
-                        <span class="dl-horiz">Проекция: ${fmt(horizM)}</span><br>
-                        <span class="dl-slant">Удаление: ${fmt(slantM)}</span>
-                    </div>`,
-                    iconAnchor: [60, 20],
+                    html: `<div class="dist-marker">${fmt(slantM)}</div>`,
+                    iconSize: null,
+                    iconAnchor: [-6, 10],
                 }),
-                interactive: false,
-                zIndexOffset: 200,
-            }).addTo(map);
+                zIndexOffset: 300,
+            })
+            .bindTooltip(`
+                <b>${escHtml(callsign)}</b> <span style="color:#aaa">${escHtml(f.icao)}</span><br>
+                Проекция: <b>${fmt(horizM)}</b><br>
+                Удаление: <b>${fmt(slantM)}</b><br>
+                Время: <b>${timeStr}</b>
+            `, { direction: 'top', offset: [0, -8] })
+            .addTo(map);
 
             distanceLayers.push({ polyline, labelMarker });
         });
