@@ -206,7 +206,7 @@
             background: rgba(10,10,20,.82); border: 1px solid #fff;
             border-radius: 10px; padding: 2px 8px;
             font-size: 13px; font-weight: bold; color: #fff;
-            white-space: nowrap; cursor: default; text-align: center;
+            white-space: nowrap; cursor: default;
             box-shadow: 0 1px 4px rgba(0,0,0,.7);
         }
 
@@ -1143,32 +1143,15 @@ function recalcDistances() {
                 { color, weight: 2, dashArray: '6 5', opacity: 0.9 }
             ).addTo(map);
 
-            // Угол линии для поворота подписи (через пиксели Mercator, точнее чем lat/lon)
-            const ptPx = map.project([pt.lat, pt.lon]);
-            const clPx = map.project([closest.lat, closest.lon]);
-            const dx = clPx.x - ptPx.x;
-            const dy = clPx.y - ptPx.y; // y растёт вниз на экране
-            let angle = Math.atan2(dy, dx) * 180 / Math.PI;
-            if (angle > 90 || angle < -90) angle += 180; // не переворачивать текст
-
-            // Маркер: отступаем от ближайшей точки трека на 70px в сторону от точки измерения
-            const clSc = map.latLngToLayerPoint([closest.lat, closest.lon]);
-            const ptSc = map.latLngToLayerPoint([pt.lat, pt.lon]);
-            const dxS = clSc.x - ptSc.x, dyS = clSc.y - ptSc.y;
-            const lenS = Math.hypot(dxS, dyS);
-            const shift = lenS > 10 ? Math.min(70, lenS * 0.45) : 0;
-            const labelLL = map.layerPointToLatLng(L.point(
-                clSc.x + dxS / lenS * shift,
-                clSc.y + dyS / lenS * shift
-            ));
+            // Горизонтальная плашка рядом с ближайшей точкой трека
             const callsign = (f.callsign || '').trim() || f.icao;
             const timeStr  = closest.ts ? fmtTime(closest.ts) : '—';
-            const labelMarker = L.marker([labelLL.lat, labelLL.lng], {
+            const labelMarker = L.marker([closest.lat, closest.lon], {
                 icon: L.divIcon({
                     className: '',
-                    html: `<div class="dist-marker" style="transform:rotate(${angle}deg)">${fmt(slantM)}</div>`,
-                    iconSize: [120, 24],
-                    iconAnchor: [60, 12],
+                    html: `<div class="dist-marker">${fmt(slantM)}</div>`,
+                    iconSize: null,
+                    iconAnchor: [-8, 20],
                 }),
                 zIndexOffset: 300,
             })
