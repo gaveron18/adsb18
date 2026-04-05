@@ -54,7 +54,8 @@
 │    • /api/archive?from=&to=                          │
 │    • /api/feeders                                    │
 │    • /api/monitor  ← Pi vs Server сравнение          │
-│    • DELETE /api/flight                              │
+│    • DELETE /api/flight
+│    • GET/POST/PUT/DELETE /api/points  (точки измерений)                              │
 │    • /data/traces/  (tar1090 getTrace)               │
 │    • /globe_history/ (tar1090 date picker)           │
 │    • WS /ws  ← пушит aircraft.json каждую секунду   │
@@ -141,6 +142,12 @@ is_on_ground    BOOLEAN
 msg_count       BIGINT
 last_pos_seen   TIMESTAMPTZ   последнее время когда была позиция
 ```
+
+### measurement_points
+```
+id, name, address, lat, lon, date_from, date_to, created_at
+```
+Точки для расчёта расстояний до треков на странице архива. altitude в футах.
 
 ### feeders
 ```
