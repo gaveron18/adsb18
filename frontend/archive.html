@@ -1160,7 +1160,8 @@ function recalcDistances() {
                 <b>${escHtml(callsign)}</b> <span style="color:#aaa">${escHtml(f.icao)}</span><br>
                 Проекция: <b>${fmt(horizM)}</b><br>
                 Удаление: <b>${fmt(slantM)}</b><br>
-                Время: <b>${timeStr}</b>
+                Время: <b>${timeStr}</b> <span style="color:#aaa">(${closest.ts ? new Date(closest.ts).toISOString().slice(11,16) + ' UTC' : '—'})</span><br>
+                Высота: <b>${closest.altitude != null ? Math.round(closest.altitude * 0.3048) + ' м' : '—'}</b>
             `, { direction: 'top', offset: [0, -8] })
             .addTo(map);
 
