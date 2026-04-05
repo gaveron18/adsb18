@@ -553,3 +553,97 @@ sudo nginx -s reload
 После этого обновить страницу в браузере (F5). nginx -s reload сбрасывает
 зависшие соединения, браузер подключается заново и получает нормальные данные.
 
+---
+
+## Сессия 2026-04-01 (archive.html не загружается)
+
+### ПРОБЛЕМА 21: Страница архива пустая — тёмный экран, ничего не отображается
+
+**Симптомы:**
+- Открываешь http://173.249.2.184:8098/archive.html — тёмный фон, нет ни карты, ни панелей, ни дат
+- В консоли браузера (F12) пусто — ни ошибок, ни логов
+- На сервере всё работает: nginx 200, API отдаёт данные, headless Chrome рендерит страницу нормально
+- Ctrl+Shift+R иногда помогало, но ненадолго
+
+**Диагностика:**
+1. Логи nginx показали: браузер загружает `archive.html`, `leaflet.css`, `leaflet.js` (все 200),
+   но запрос к `/api/archive` **никогда не происходит** — значит inline JS не выполняется
+2. Создали пошаговую тест-страницу (`test2.html`): загрузка Leaflet с локального сервера зависала —
+   ни `onload`, ни `onerror` не срабатывали
+3. Тест с CDN (`test3.html`): Leaflet с `unpkg.com` по HTTPS загрузился и работал без проблем
+
+**Корневая причина — DPI провайдера обрезает chunked HTTP-ответы:**
+
+Сайт работает по **HTTP** (не HTTPS). Российские провайдеры используют ТСПУ/DPI
+(Deep Packet Inspection) — оборудование, которое анализирует незашифрованный трафик.
+
+Когда nginx сжимает файл **на лету** (on-the-fly gzip для файлов без `.gz`),
+он отдаёт ответ **без `Content-Length`** с `Transfer-Encoding: chunked`.
+DPI не может определить размер chunked-ответа и **обрезает или блокирует** его.
+Браузер получает неполный файл — скрипт невалиден, но ни `onload`, ни `onerror`
+не срабатывают (браузер всё ещё ждёт данные). Страница остаётся пустой.
+
+Разница между файлами:
+```
+leaflet.js    → НЕТ .gz → on-the-fly gzip → БЕЗ Content-Length → DPI режет
+ol-custom.js  → ЕСТЬ .gz → gzip_static     → ЕСТЬ Content-Length → DPI пропускает
+script.js     → ЕСТЬ .gz → gzip_static     → ЕСТЬ Content-Length → DPI пропускает
+```
+
+Поэтому `index.html` работал (все крупные JS имели `.gz`), а `archive.html` — нет
+(`leaflet.js` не имел `.gz`).
+
+**Решение 1 — CDN для Leaflet (`frontend/archive.html`):**
+```html
+<!-- Было: -->
+<link rel="stylesheet" href="libs/leaflet/leaflet.css"/>
+<script src="libs/leaflet/leaflet.js"></script>
+
+<!-- Стало: -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+```
+CDN отдаёт по HTTPS — DPI не может вмешаться.
+
+**Решение 2 — `.gz` для всех файлов без них:**
+Созданы предварительно сжатые `.gz` для всех JS/CSS > 5KB.
+Теперь `gzip_static` отдаёт их с `Content-Length` — DPI пропускает.
+```bash
+gzip -k frontend/libs/leaflet/leaflet.js
+gzip -k frontend/libs/egm96-universal-1.1.0.min.js
+gzip -k frontend/early.js
+gzip -k frontend/formatter.js
+gzip -k frontend/defaults.js
+gzip -k frontend/registrations.js
+gzip -k frontend/style.css
+gzip -k frontend/libs/jquery-ui-1.13.2.min.css
+gzip -k frontend/libs/ol-8.2.0.css
+gzip -k frontend/libs/ol-layerswitcher-4.1.1.css
+gzip -k frontend/libs/leaflet/leaflet.css
+```
+
+**Решение 3 — `no-cache` для archive.html в nginx:**
+```nginx
+location = /archive.html {
+    root /home/new/adsb18/frontend;
+    add_header Cache-Control "no-store, no-cache, must-revalidate";
+}
+```
+Обновления страницы доходят до пользователя без Ctrl+Shift+R.
+
+**Правило на будущее:**
+При добавлении любого нового JS/CSS файла > 5KB — обязательно создавать `.gz`:
+```bash
+gzip -k frontend/новый_файл.js
+```
+
+**Кардинальное решение:**
+Поставить **HTTPS** (Let's Encrypt + домен). Это полностью закроет проблему с DPI
+для всех файлов. По голому IP сертификат не выдают — нужен домен.
+
+**Как диагностировать похожие проблемы в будущем:**
+1. Страница пустая, консоль чистая → скрипт не загрузился
+2. Проверить: `curl -sI -H "Accept-Encoding: gzip" http://...файл.js | grep Content-Length`
+3. Если `Content-Length` нет → файл отдаётся chunked → создать `.gz` файл
+4. Пошаговая диагностика: создать тест-страницу с `onload`/`onerror` для каждого ресурса
+
