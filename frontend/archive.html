@@ -1147,7 +1147,6 @@ function recalcDistances() {
 
             // Горизонтальная плашка рядом с ближайшей точкой трека
             const callsign = (f.callsign || '').trim() || f.icao;
-            const timeStr  = closest.ts ? fmtTime(closest.ts) : '—';
             const labelMarker = L.marker([closest.lat, closest.lon], {
                 icon: L.divIcon({
                     className: '',
@@ -1161,7 +1160,7 @@ function recalcDistances() {
                 <b>${escHtml(callsign)}</b> <span style="color:#aaa">${escHtml(f.icao)}</span><br>
                 Проекция: <b>${fmt(horizM)}</b><br>
                 Удаление: <b>${fmt(slantM)}</b><br>
-                Время: <b>${timeStr}</b> <span style="color:#aaa">(${closest.ts ? new Date(closest.ts).toISOString().slice(11,16) + ' UTC' : '—'})</span><br>
+                Время: <b>${closest.ts ? new Date(new Date(closest.ts).getTime() + tzOffsetMs).toISOString().slice(11,16) : '—'} (UTC${tzOffsetMs >= 0 ? '+' : ''}${tzOffsetMs/3600000})</b><br>
                 Высота: <b>${closest.altitude != null ? Math.round(closest.altitude * 0.3048) + ' м' : '—'}</b>
             `, { direction: 'top', offset: [0, -8] })
             .addTo(map);
