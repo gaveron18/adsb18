@@ -569,7 +569,15 @@ function fmtDur(a, b) {
 function ft2m(ft) { return ft ? Math.round(ft / 3.281) + ' м' : '—'; }
 
 // ── Date pickers: today 00:00 → now in selected TZ ───────────────────────────
-function initDatePickers() {
+function initDatePickers(restore = false) {
+    if (restore) {
+        const saved = loadPeriod();
+        if (saved) {
+            document.getElementById('fromDt').value = saved.from;
+            document.getElementById('toDt').value   = saved.to;
+            return;
+        }
+    }
     const nowUTC  = new Date().toISOString();
     const nowInTZ = new Date(Date.now() + tzOffsetMs);
     const startOfDayUTC = new Date(Date.UTC(
@@ -577,6 +585,25 @@ function initDatePickers() {
     ) - tzOffsetMs).toISOString();
     document.getElementById('fromDt').value = utcToInput(startOfDayUTC);
     document.getElementById('toDt').value   = utcToInput(nowUTC);
+}
+
+// ── localStorage helpers ──────────────────────────────────────────────────────
+function savePeriod() {
+    const from = document.getElementById('fromDt').value;
+    const to   = document.getElementById('toDt').value;
+    if (from && to) localStorage.setItem('adsb18_period', JSON.stringify({ from, to }));
+}
+
+function loadPeriod() {
+    try { return JSON.parse(localStorage.getItem('adsb18_period')); } catch { return null; }
+}
+
+function savePointsVisible(ids) {
+    localStorage.setItem('adsb18_points_visible', JSON.stringify([...ids]));
+}
+
+function loadPointsVisible() {
+    try { return new Set(JSON.parse(localStorage.getItem('adsb18_points_visible')) || []); } catch { return new Set(); }
 }
 
 // Refresh times in already-rendered flight list (after TZ change)
@@ -595,14 +622,16 @@ function refreshDisplayedTimes() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 buildTZSelect();
-initDatePickers();
+initDatePickers(true);
 loadArchive();
+loadPoints(true);
 
 // ── Load flight list ──────────────────────────────────────────────────────────
 async function loadArchive(autoSelect = false) {
     const from = inputToUTC(document.getElementById('fromDt').value);
     const to   = inputToUTC(document.getElementById('toDt').value);
     if (!from || !to) { alert('Выберите период'); return; }
+    savePeriod();
 
     clearAll();
     colorIdx = 0;
@@ -858,7 +887,7 @@ const flagIcon = L.divIcon({
     popupAnchor: [8, -22],
 });
 
-async function loadPoints() {
+async function loadPoints(restoreVisible = false) {
     try {
         const r = await fetch('/api/points');
         pointsData = await r.json();
@@ -866,6 +895,12 @@ async function loadPoints() {
         document.getElementById('ptTableBody').innerHTML =
             '<tr><td colspan="6" class="pt-empty" style="color:#ef5350">Ошибка загрузки точек</td></tr>';
         return;
+    }
+    if (restoreVisible) {
+        const saved = loadPointsVisible();
+        saved.forEach(id => {
+            if (pointsData.find(p => p.id === id)) togglePointMarker(id, true);
+        });
     }
     renderPointsTable();
 }
@@ -914,12 +949,13 @@ function togglePointMarker(id, show) {
         const m = pointMarkers.get(id);
         if (m) { map.removeLayer(m); pointMarkers.delete(id); }
     }
+    savePointsVisible(pointMarkers.keys());
 }
 
 function openPointsModal() {
     cancelEditPoint();
     document.getElementById('pointsModal').classList.add('open');
-    loadPoints();
+    loadPoints(false);
 }
 
 function closePointsModal() {
