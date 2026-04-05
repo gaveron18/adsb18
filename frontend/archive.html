@@ -859,8 +859,14 @@ const flagIcon = L.divIcon({
 });
 
 async function loadPoints() {
-    const r = await fetch('/api/points');
-    pointsData = await r.json();
+    try {
+        const r = await fetch('/api/points');
+        pointsData = await r.json();
+    } catch(e) {
+        document.getElementById('ptTableBody').innerHTML =
+            '<tr><td colspan="6" class="pt-empty" style="color:#ef5350">Ошибка загрузки точек</td></tr>';
+        return;
+    }
     renderPointsTable();
 }
 
@@ -936,11 +942,12 @@ function startEditPoint(id) {
     editingPointId = id;
     document.getElementById('ptName').value    = p.name;
     document.getElementById('ptAddress').value = p.address || '';
-    document.getElementById('ptCoords').value  = `${p.lat}, ${p.lon}`;
+    document.getElementById('ptCoords').value  = `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`;
     document.getElementById('ptDateFrom').value = p.date_from || '';
     document.getElementById('ptDateTo').value   = p.date_to || '';
     document.getElementById('ptFormError').textContent = '';
     document.getElementById('ptName').focus();
+    document.getElementById('ptForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function savePoint() {
@@ -994,7 +1001,7 @@ async function savePoint() {
 async function deletePoint(id) {
     if (!confirm('Удалить точку?')) return;
     const r = await fetch(`/api/points/${id}`, { method: 'DELETE' });
-    if (!r.ok) return;
+    if (!r.ok) { alert('Ошибка удаления'); return; }
     const m = pointMarkers.get(id);
     if (m) { map.removeLayer(m); pointMarkers.delete(id); }
     pointsData = pointsData.filter(x => x.id !== id);
