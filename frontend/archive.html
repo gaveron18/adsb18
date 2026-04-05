@@ -659,7 +659,7 @@ async function selectVisible() {
             const url = `/api/history?icao=${f.icao}&from=${encodeURIComponent(f.first_seen)}&to=${encodeURIComponent(f.last_seen)}&limit=500`;
             const pts = await fetchWithTimeout(url, 8000).then(r => r.json());
             const valid = pts.filter(p => p.lat != null && p.lon != null);
-            if (!valid.length) { empty++; el.querySelector('.fi-check').checked = false; el.classList.remove('active'); continue; }
+            if (!valid.length) { empty++; el.querySelector('.fi-check').checked = false; el.classList.remove('active'); updateTrackCount(); continue; }
             const layer = buildTrackLayer(valid, f, color).addTo(map);
             activeTracks.set(icao, { layer, color, f, el, valid });
             loaded++;
@@ -669,6 +669,7 @@ async function selectVisible() {
             el.classList.remove('active');
         }
         prog.textContent = loaded + '/' + items.length;
+        updateTrackCount();
     }
 
     setTimeout(() => { prog.style.display = 'none'; }, 1500);
