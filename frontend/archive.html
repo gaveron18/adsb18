@@ -1151,10 +1151,19 @@ function recalcDistances() {
             let angle = Math.atan2(dy, dx) * 180 / Math.PI;
             if (angle > 90 || angle < -90) angle += 180; // не переворачивать текст
 
-            // Маркер в конце пунктирной линии (ближайшая точка трека)
+            // Маркер: отступаем от ближайшей точки трека на 70px в сторону точки измерения
+            const clSc = map.latLngToLayerPoint([closest.lat, closest.lon]);
+            const ptSc = map.latLngToLayerPoint([pt.lat, pt.lon]);
+            const dxS = clSc.x - ptSc.x, dyS = clSc.y - ptSc.y;
+            const lenS = Math.hypot(dxS, dyS);
+            const shift = lenS > 10 ? Math.min(70, lenS * 0.45) : 0;
+            const labelLL = map.layerPointToLatLng(L.point(
+                clSc.x - dxS / lenS * shift,
+                clSc.y - dyS / lenS * shift
+            ));
             const callsign = (f.callsign || '').trim() || f.icao;
             const timeStr  = closest.ts ? fmtTime(closest.ts) : '—';
-            const labelMarker = L.marker([closest.lat, closest.lon], {
+            const labelMarker = L.marker([labelLL.lat, labelLL.lng], {
                 icon: L.divIcon({
                     className: '',
                     html: `<div class="dist-marker" style="transform:rotate(${angle}deg)">${fmt(slantM)}</div>`,
