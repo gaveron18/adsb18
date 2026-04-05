@@ -188,6 +188,28 @@
         .btn-danger { background: transparent; border: 1px solid #ef5350; color: #ef5350; }
         .btn-danger:hover { background: #1a0a0a; }
 
+        /* ── Distance toggle button ── */
+        .dist-toggle-ctrl {
+            position: absolute; bottom: 90px; right: 10px; z-index: 500;
+        }
+        .dist-toggle-btn {
+            background: #16213e; border: 1px solid #4fc3f7; color: #4fc3f7;
+            border-radius: 6px; padding: 6px 12px; font-size: 12px;
+            cursor: pointer; white-space: nowrap; user-select: none;
+            box-shadow: 0 2px 6px rgba(0,0,0,.5);
+        }
+        .dist-toggle-btn:hover { background: #0f3460; }
+        .dist-toggle-btn.active { background: #0f3460; border-color: #81d4fa; color: #81d4fa; }
+
+        /* ── Distance label on map ── */
+        .dist-label {
+            background: rgba(15,52,96,.85); border: 1px solid #4fc3f7;
+            border-radius: 4px; padding: 3px 7px; font-size: 11px; color: #e0e0e0;
+            white-space: nowrap; line-height: 1.6; pointer-events: none;
+        }
+        .dist-label .dl-horiz { color: #81d4fa; }
+        .dist-label .dl-slant { color: #ffcc80; }
+
         .check-result {
             position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 2000;
             padding: 8px 18px; border-radius: 6px; font: bold 13px monospace;
@@ -306,6 +328,10 @@
 
     <div class="map-wrap">
         <div id="map"></div>
+
+        <div class="dist-toggle-ctrl">
+            <div class="dist-toggle-btn" id="distToggleBtn" onclick="toggleDistances()">📏 Расстояния: OFF</div>
+        </div>
 
         <div class="info-panel" id="infoPanel">
             <h3 id="ipCallsign" style="color:#4fc3f7">—</h3>
@@ -748,6 +774,7 @@ async function addTrack(f, el, color, skipFit = false) {
         const layer = buildTrackLayer(valid, f, color).addTo(map);
         activeTracks.set(f.icao, { layer, color, f, el, valid });
         updateTrackCount();
+        recalcDistances();
         if (!skipFit) { fitAll(); showInfo(f, color); }
     } catch(e) {
         console.error('addTrack error:', e);
@@ -765,6 +792,7 @@ function removeTrack(icao, el) {
     if (activeTracks.size === 0) document.getElementById('infoPanel').style.display = 'none';
     else fitAll();
     updateTrackCount();
+    recalcDistances();
 }
 
 // -- Bulk select: load tracks one by one with timeout -------------------------
@@ -810,6 +838,7 @@ async function selectVisible() {
 
     setTimeout(() => { prog.style.display = 'none'; }, 1500);
     fitAll();
+    recalcDistances();
 }
 
 function updateTrackCount() {
@@ -836,6 +865,7 @@ function clearAll() {
     });
     document.getElementById('infoPanel').style.display = 'none';
     updateTrackCount();
+    recalcDistances();
 }
 
 // ── Fit map to all active tracks ──────────────────────────────────────────────
@@ -950,6 +980,7 @@ function togglePointMarker(id, show) {
         if (m) { map.removeLayer(m); pointMarkers.delete(id); }
     }
     savePointsVisible(pointMarkers.keys());
+    recalcDistances();
 }
 
 function openPointsModal() {
@@ -1049,6 +1080,103 @@ async function deletePoint(id) {
 document.getElementById('pointsModal').addEventListener('click', e => {
     if (e.target === document.getElementById('pointsModal')) closePointsModal();
 });
+
+// ── Distances calculation ─────────────────────────────────────────────────────
+
+let distancesEnabled = false;
+let distanceLayers = []; // [{polyline, labelMarker}]
+
+function haversineM(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 +
+              Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
+              Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function fmt(m) {
+    return m >= 1000 ? (m / 1000).toFixed(2) + ' км' : Math.round(m) + ' м';
+}
+
+function clearDistanceLayers() {
+    distanceLayers.forEach(({polyline, labelMarker}) => {
+        map.removeLayer(polyline);
+        map.removeLayer(labelMarker);
+    });
+    distanceLayers = [];
+}
+
+function recalcDistances() {
+    clearDistanceLayers();
+    if (!distancesEnabled) return;
+    if (!pointMarkers.size || !activeTracks.size) return;
+
+    pointMarkers.forEach((_, pointId) => {
+        const pt = pointsData.find(p => p.id === pointId);
+        if (!pt) return;
+
+        activeTracks.forEach(({valid, color}) => {
+            if (!valid.length) return;
+
+            // Ближайшая точка трека
+            let minDist = Infinity, closest = null;
+            valid.forEach(p => {
+                const d = haversineM(pt.lat, pt.lon, p.lat, p.lon);
+                if (d < minDist) { minDist = d; closest = p; }
+            });
+            if (!closest) return;
+
+            // Горизонтальное расстояние (проекция на землю)
+            const horizM = haversineM(pt.lat, pt.lon, closest.lat, closest.lon);
+
+            // Высота в метрах (ADS-B даёт футы)
+            const altM = (closest.altitude != null) ? closest.altitude * 0.3048 : 0;
+
+            // Наклонное расстояние (прямая линия до ВС)
+            const slantM = Math.sqrt(horizM * horizM + altM * altM);
+
+            // Пунктирная линия
+            const polyline = L.polyline(
+                [[pt.lat, pt.lon], [closest.lat, closest.lon]],
+                { color, weight: 1.5, dashArray: '6 6', opacity: 0.85 }
+            ).addTo(map);
+
+            // Подпись посередине линии
+            const midLat = (pt.lat + closest.lat) / 2;
+            const midLon = (pt.lon + closest.lon) / 2;
+            const labelMarker = L.marker([midLat, midLon], {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div class="dist-label">
+                        <span class="dl-horiz">Проекция: ${fmt(horizM)}</span><br>
+                        <span class="dl-slant">Удаление: ${fmt(slantM)}</span>
+                    </div>`,
+                    iconAnchor: [60, 20],
+                }),
+                interactive: false,
+                zIndexOffset: 200,
+            }).addTo(map);
+
+            distanceLayers.push({ polyline, labelMarker });
+        });
+    });
+}
+
+function toggleDistances() {
+    distancesEnabled = !distancesEnabled;
+    const btn = document.getElementById('distToggleBtn');
+    if (distancesEnabled) {
+        btn.textContent = '📏 Расстояния: ON';
+        btn.classList.add('active');
+        recalcDistances();
+    } else {
+        btn.textContent = '📏 Расстояния: OFF';
+        btn.classList.remove('active');
+        clearDistanceLayers();
+    }
+}
 </script>
 </body>
 </html>
