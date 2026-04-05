@@ -331,6 +331,7 @@
 
         <div class="dist-toggle-ctrl">
             <div class="dist-toggle-btn" id="distToggleBtn" onclick="toggleDistances()">📏 Расстояния: OFF</div>
+            <div class="dist-toggle-btn" id="distExportBtn" onclick="exportDistances()" style="margin-top:6px;display:none">⬇ Экспорт в CSV</div>
         </div>
 
         <div class="info-panel" id="infoPanel">
@@ -1086,6 +1087,7 @@ document.getElementById('pointsModal').addEventListener('click', e => {
 
 let distancesEnabled = false;
 let distanceLayers = []; // [{polyline, labelMarker}]
+let distanceData   = []; // raw results for export
 
 function haversineM(lat1, lon1, lat2, lon2) {
     const R = 6371000;
@@ -1129,6 +1131,8 @@ function clearDistanceLayers() {
         if (dotMarker) map.removeLayer(dotMarker);
     });
     distanceLayers = [];
+    distanceData   = [];
+    document.getElementById('distExportBtn').style.display = 'none';
 }
 
 function recalcDistances() {
@@ -1196,8 +1200,43 @@ function recalcDistances() {
             }).addTo(map);
 
             distanceLayers.push({ polyline, labelMarker, dotMarker });
+            distanceData.push({
+                ptName:    pt.name,
+                ptAddress: pt.address || '',
+                callsign,
+                icao:      f.icao,
+                horizM:    Math.round(horizM),
+                slantM:    Math.round(slantM),
+                altM:      closest.altitude != null ? Math.round(closest.altitude * 0.3048) : null,
+                ts:        closest.ts || null,
+                lat:       closest.lat,
+                lon:       closest.lon,
+            });
         });
     });
+    if (distanceData.length) document.getElementById('distExportBtn').style.display = '';
+}
+
+function exportDistances() {
+    if (!distanceData.length) return;
+    const tzLabel = tzOffsetMs >= 0 ? 'UTC+' + tzOffsetMs/3600000 : 'UTC' + tzOffsetMs/3600000;
+    const rows = [
+        ['Точка измерения', 'Адрес', 'Рейс', 'ICAO', 'Проекция (м)', 'Удаление (м)', 'Высота (м)', 'Время (' + tzLabel + ')', 'Lat', 'Lon']
+    ];
+    distanceData.forEach(d => {
+        const timeLocal = d.ts ? new Date(new Date(d.ts).getTime() + tzOffsetMs).toISOString().slice(0,19).replace('T', ' ') : '';
+        rows.push([
+            d.ptName, d.ptAddress, d.callsign, d.icao,
+            d.horizM, d.slantM, d.altM ?? '',
+            timeLocal, d.lat, d.lon
+        ]);
+    });
+    const csv = '\uFEFF' + rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""')+'"').join(';') ).join('\n');
+    const a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+    const dateStr = new Date().toISOString().slice(0,10);
+    a.download = 'distances_' + dateStr + '.csv';
+    a.click();
 }
 
 function toggleDistances() {
