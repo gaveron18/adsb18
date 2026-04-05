@@ -1099,13 +1099,16 @@ function haversineM(lat1, lon1, lat2, lon2) {
 
 // Ближайшая точка на отрезке p1→p2 от точки pt (интерполяция координат, высоты, времени)
 function closestOnSegment(pt, p1, p2) {
-    const dx = p2.lon - p1.lon, dy = p2.lat - p1.lat;
+    // Масштабируем lon на cos(lat) чтобы градусы lon и lat были соразмерны в метрах
+    const cosLat = Math.cos((p1.lat + p2.lat) / 2 * Math.PI / 180);
+    const dx = (p2.lon - p1.lon) * cosLat, dy = p2.lat - p1.lat;
     const lenSq = dx*dx + dy*dy;
     if (lenSq === 0) return p1;
-    let t = ((pt.lon - p1.lon)*dx + (pt.lat - p1.lat)*dy) / lenSq;
+    const px = (pt.lon - p1.lon) * cosLat, py = pt.lat - p1.lat;
+    let t = (px*dx + py*dy) / lenSq;
     t = Math.max(0, Math.min(1, t));
-    const lat = p1.lat + t * dy;
-    const lon = p1.lon + t * dx;
+    const lat = p1.lat + t * (p2.lat - p1.lat);
+    const lon = p1.lon + t * (p2.lon - p1.lon);
     const alt = (p1.altitude != null && p2.altitude != null)
         ? p1.altitude + t * (p2.altitude - p1.altitude)
         : (p1.altitude ?? p2.altitude);
