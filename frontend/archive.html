@@ -138,6 +138,56 @@
         .info-panel td:first-child { color: #666; width: 100px; }
         .info-panel td:last-child { color: #ddd; font-weight: bold; }
 
+        /* ── Measurement points modal ── */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,.65); z-index: 1000;
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            background: #16213e; border: 1px solid #0f3460;
+            border-radius: 8px; width: 720px; max-width: 95vw;
+            max-height: 90vh; display: flex; flex-direction: column;
+            box-shadow: 0 8px 32px rgba(0,0,0,.6);
+        }
+        .modal-header {
+            padding: 12px 16px; background: #0f3460;
+            border-radius: 8px 8px 0 0;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .modal-header h2 { font-size: 15px; color: #4fc3f7; }
+        .modal-close { background: none; border: none; color: #aaa; font-size: 20px; cursor: pointer; line-height: 1; }
+        .modal-close:hover { color: #fff; }
+        .modal-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
+
+        .pt-form {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+            margin-bottom: 14px; background: #0f3460;
+            padding: 12px; border-radius: 6px;
+        }
+        .pt-form .full { grid-column: 1 / -1; }
+        .pt-form label { font-size: 11px; color: #aaa; display: block; margin-bottom: 3px; }
+        .pt-form input {
+            width: 100%; background: #16213e; border: 1px solid #4fc3f7;
+            color: #e0e0e0; border-radius: 4px; padding: 5px 8px; font-size: 12px;
+        }
+        .pt-form-actions { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 4px; }
+
+        .pt-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .pt-table th {
+            background: #0f3460; color: #4fc3f7; padding: 6px 8px;
+            text-align: left; font-weight: normal; position: sticky; top: 0;
+        }
+        .pt-table td { padding: 6px 8px; border-bottom: 1px solid #1a1a3e; vertical-align: middle; }
+        .pt-table tr:hover td { background: #1a2a4e; }
+        .pt-table .actions { white-space: nowrap; }
+        .pt-table .show-cb { text-align: center; }
+        .pt-empty { color: #666; text-align: center; padding: 20px; }
+
+        .btn-danger { background: transparent; border: 1px solid #ef5350; color: #ef5350; }
+        .btn-danger:hover { background: #1a0a0a; }
+
         .check-result {
             position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 2000;
             padding: 8px 18px; border-radius: 6px; font: bold 13px monospace;
@@ -173,6 +223,63 @@
         <button class="btn-icon" title="Добавить часовой пояс" onclick="addCustomTZ()">+</button>
         <button class="btn-icon" id="tzRemoveBtn" title="Удалить" onclick="removeCustomTZ()" style="display:none">✕</button>
     </div>
+    <button class="btn-icon" title="Точки измерений" onclick="openPointsModal()">⚙</button>
+</div>
+
+<!-- Measurement points modal -->
+<div class="modal-overlay" id="pointsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>📍 Точки измерений</h2>
+      <button class="modal-close" onclick="closePointsModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <!-- Form -->
+      <div class="pt-form" id="ptForm">
+        <div class="full">
+          <label>Название *</label>
+          <input type="text" id="ptName" placeholder="Точка №1">
+        </div>
+        <div class="full">
+          <label>Адрес</label>
+          <input type="text" id="ptAddress" placeholder="ул. Пушкина 10">
+        </div>
+        <div class="full">
+          <label>Координаты * (широта, долгота)</label>
+          <input type="text" id="ptCoords" placeholder="56.862737, 53.213520">
+        </div>
+        <div>
+          <label>Дата начала</label>
+          <input type="date" id="ptDateFrom">
+        </div>
+        <div>
+          <label>Дата окончания</label>
+          <input type="date" id="ptDateTo">
+        </div>
+        <div class="pt-form-actions">
+          <button class="btn btn-sm" onclick="savePoint()">Сохранить</button>
+          <button class="btn btn-outline btn-sm" onclick="cancelEditPoint()">Отмена</button>
+          <span id="ptFormError" style="color:#ef5350;font-size:11px;align-self:center"></span>
+        </div>
+      </div>
+      <!-- Table -->
+      <table class="pt-table" id="ptTable">
+        <thead>
+          <tr>
+            <th class="show-cb">На карте</th>
+            <th>Название</th>
+            <th>Адрес</th>
+            <th>Координаты</th>
+            <th>Период</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="ptTableBody">
+          <tr><td colspan="6" class="pt-empty">Загрузка...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <div class="main">
@@ -737,6 +844,168 @@ function filterFlights() {
     document.getElementById('flightCount').textContent =
         q ? `${visible} / ${items.length}` : items.length;
 }
+
+// ── Measurement points ────────────────────────────────────────────────────────
+
+let pointsData = [];          // [{id, name, address, lat, lon, date_from, date_to}]
+let pointMarkers = new Map(); // id → L.marker
+let editingPointId = null;
+
+const flagIcon = L.divIcon({
+    className: '',
+    html: '<div style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 2px #000)">🚩</div>',
+    iconAnchor: [4, 22],
+    popupAnchor: [8, -22],
+});
+
+async function loadPoints() {
+    const r = await fetch('/api/points');
+    pointsData = await r.json();
+    renderPointsTable();
+}
+
+function renderPointsTable() {
+    const tbody = document.getElementById('ptTableBody');
+    if (!pointsData.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="pt-empty">Нет точек. Добавьте первую.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = pointsData.map(p => {
+        const onMap = pointMarkers.has(p.id);
+        const coords = `${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}`;
+        const period = [p.date_from, p.date_to].filter(Boolean).join(' — ') || '—';
+        return `<tr>
+            <td class="show-cb">
+                <input type="checkbox" ${onMap ? 'checked' : ''}
+                    onchange="togglePointMarker(${p.id}, this.checked)">
+            </td>
+            <td>${escHtml(p.name)}</td>
+            <td>${escHtml(p.address || '—')}</td>
+            <td style="font-size:11px;color:#aaa">${coords}</td>
+            <td style="font-size:11px;color:#aaa">${escHtml(period)}</td>
+            <td class="actions">
+                <button class="btn btn-outline btn-sm" onclick="startEditPoint(${p.id})">✏</button>
+                <button class="btn btn-danger btn-sm" onclick="deletePoint(${p.id})">🗑</button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function togglePointMarker(id, show) {
+    const p = pointsData.find(x => x.id === id);
+    if (!p) return;
+    if (show) {
+        const marker = L.marker([p.lat, p.lon], { icon: flagIcon })
+            .addTo(map)
+            .bindPopup(`<b>${escHtml(p.name)}</b><br>${escHtml(p.address || '')}<br>
+                <span style="font-size:11px;color:#aaa">${p.lat.toFixed(6)}, ${p.lon.toFixed(6)}</span>`);
+        pointMarkers.set(id, marker);
+    } else {
+        const m = pointMarkers.get(id);
+        if (m) { map.removeLayer(m); pointMarkers.delete(id); }
+    }
+}
+
+function openPointsModal() {
+    cancelEditPoint();
+    document.getElementById('pointsModal').classList.add('open');
+    loadPoints();
+}
+
+function closePointsModal() {
+    document.getElementById('pointsModal').classList.remove('open');
+}
+
+function cancelEditPoint() {
+    editingPointId = null;
+    document.getElementById('ptName').value = '';
+    document.getElementById('ptAddress').value = '';
+    document.getElementById('ptCoords').value = '';
+    document.getElementById('ptDateFrom').value = '';
+    document.getElementById('ptDateTo').value = '';
+    document.getElementById('ptFormError').textContent = '';
+}
+
+function startEditPoint(id) {
+    const p = pointsData.find(x => x.id === id);
+    if (!p) return;
+    editingPointId = id;
+    document.getElementById('ptName').value    = p.name;
+    document.getElementById('ptAddress').value = p.address || '';
+    document.getElementById('ptCoords').value  = `${p.lat}, ${p.lon}`;
+    document.getElementById('ptDateFrom').value = p.date_from || '';
+    document.getElementById('ptDateTo').value   = p.date_to || '';
+    document.getElementById('ptFormError').textContent = '';
+    document.getElementById('ptName').focus();
+}
+
+async function savePoint() {
+    const name   = document.getElementById('ptName').value.trim();
+    const coords = document.getElementById('ptCoords').value.trim();
+    const errEl  = document.getElementById('ptFormError');
+    errEl.textContent = '';
+
+    if (!name) { errEl.textContent = 'Введите название'; return; }
+
+    const parts = coords.split(',').map(s => parseFloat(s.trim()));
+    if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+        errEl.textContent = 'Неверный формат координат'; return;
+    }
+    const [lat, lon] = parts;
+
+    const body = {
+        name,
+        address:   document.getElementById('ptAddress').value.trim() || null,
+        lat, lon,
+        date_from: document.getElementById('ptDateFrom').value || null,
+        date_to:   document.getElementById('ptDateTo').value   || null,
+    };
+
+    const url    = editingPointId ? `/api/points/${editingPointId}` : '/api/points';
+    const method = editingPointId ? 'PUT' : 'POST';
+    try {
+        const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        if (!r.ok) { errEl.textContent = 'Ошибка сохранения'; return; }
+        const saved = await r.json();
+        if (editingPointId) {
+            const idx = pointsData.findIndex(x => x.id === editingPointId);
+            if (idx >= 0) pointsData[idx] = saved;
+            // update marker if visible
+            const m = pointMarkers.get(editingPointId);
+            if (m) {
+                m.setLatLng([saved.lat, saved.lon]);
+                m.setPopupContent(`<b>${escHtml(saved.name)}</b><br>${escHtml(saved.address || '')}<br>
+                    <span style="font-size:11px;color:#aaa">${saved.lat.toFixed(6)}, ${saved.lon.toFixed(6)}</span>`);
+            }
+        } else {
+            pointsData.push(saved);
+        }
+        cancelEditPoint();
+        renderPointsTable();
+    } catch(e) {
+        errEl.textContent = 'Ошибка: ' + e.message;
+    }
+}
+
+async function deletePoint(id) {
+    if (!confirm('Удалить точку?')) return;
+    const r = await fetch(`/api/points/${id}`, { method: 'DELETE' });
+    if (!r.ok) return;
+    const m = pointMarkers.get(id);
+    if (m) { map.removeLayer(m); pointMarkers.delete(id); }
+    pointsData = pointsData.filter(x => x.id !== id);
+    if (editingPointId === id) cancelEditPoint();
+    renderPointsTable();
+}
+
+// Close modal on overlay click
+document.getElementById('pointsModal').addEventListener('click', e => {
+    if (e.target === document.getElementById('pointsModal')) closePointsModal();
+});
 </script>
 </body>
 </html>

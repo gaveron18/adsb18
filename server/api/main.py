@@ -16,7 +16,7 @@ import json
 import asyncio
 import logging
 import asyncpg
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import JSONResponse
@@ -409,6 +409,64 @@ async def delete_flight(
 
     log.info(f'Deleted flight {icao} [{t_from} – {t_to}]: {deleted} rows')
     return {'deleted': deleted, 'icao': icao}
+
+
+# ── Measurement points ────────────────────────────────────────────────────────
+
+class PointIn(BaseModel):
+    name:      str
+    address:   str | None = None
+    lat:       float
+    lon:       float
+    date_from: str | None = None   # ISO date YYYY-MM-DD
+    date_to:   str | None = None
+
+@app.get('/api/points')
+async def points_list():
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT id, name, address, lat, lon, date_from, date_to FROM measurement_points ORDER BY id'
+        )
+    return [dict(r) for r in rows]
+
+def _parse_date(s: str | None):
+    return date.fromisoformat(s) if s else None
+
+@app.post('/api/points', status_code=201)
+async def points_create(p: PointIn):
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''INSERT INTO measurement_points (name, address, lat, lon, date_from, date_to)
+               VALUES ($1, $2, $3, $4, $5, $6)
+               RETURNING id, name, address, lat, lon, date_from, date_to''',
+            p.name, p.address, p.lat, p.lon, _parse_date(p.date_from), _parse_date(p.date_to)
+        )
+    return dict(row)
+
+@app.put('/api/points/{point_id}')
+async def points_update(point_id: int, p: PointIn):
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''UPDATE measurement_points
+               SET name=$1, address=$2, lat=$3, lon=$4, date_from=$5, date_to=$6
+               WHERE id=$7
+               RETURNING id, name, address, lat, lon, date_from, date_to''',
+            p.name, p.address, p.lat, p.lon, _parse_date(p.date_from), _parse_date(p.date_to), point_id
+        )
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail='Point not found')
+    return dict(row)
+
+@app.delete('/api/points/{point_id}')
+async def points_delete(point_id: int):
+    async with pool.acquire() as conn:
+        result = await conn.execute('DELETE FROM measurement_points WHERE id=$1', point_id)
+    deleted = int(result.split()[-1])
+    if not deleted:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail='Point not found')
+    return {'deleted': point_id}
 
 
 @app.get('/api/feeders')
