@@ -1097,6 +1097,24 @@ function haversineM(lat1, lon1, lat2, lon2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Ближайшая точка на отрезке p1→p2 от точки pt (интерполяция координат, высоты, времени)
+function closestOnSegment(pt, p1, p2) {
+    const dx = p2.lon - p1.lon, dy = p2.lat - p1.lat;
+    const lenSq = dx*dx + dy*dy;
+    if (lenSq === 0) return p1;
+    let t = ((pt.lon - p1.lon)*dx + (pt.lat - p1.lat)*dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    const lat = p1.lat + t * dy;
+    const lon = p1.lon + t * dx;
+    const alt = (p1.altitude != null && p2.altitude != null)
+        ? p1.altitude + t * (p2.altitude - p1.altitude)
+        : (p1.altitude ?? p2.altitude);
+    const ts = (p1.ts && p2.ts)
+        ? new Date(new Date(p1.ts).getTime() + t * (new Date(p2.ts) - new Date(p1.ts))).toISOString()
+        : (p1.ts || p2.ts);
+    return { lat, lon, altitude: alt, ts };
+}
+
 function fmt(m) {
     return m >= 1000 ? (m / 1000).toFixed(2) + ' км' : Math.round(m) + ' м';
 }
@@ -1122,12 +1140,17 @@ function recalcDistances() {
         activeTracks.forEach(({valid, color, f}) => {
             if (!valid.length) return;
 
-            // Ближайшая точка трека
+            // Ближайшая точка трека (интерполяция между сэмплами)
             let minDist = Infinity, closest = null;
-            valid.forEach(p => {
-                const d = haversineM(pt.lat, pt.lon, p.lat, p.lon);
-                if (d < minDist) { minDist = d; closest = p; }
-            });
+            for (let i = 0; i < valid.length - 1; i++) {
+                const c = closestOnSegment(pt, valid[i], valid[i+1]);
+                const d = haversineM(pt.lat, pt.lon, c.lat, c.lon);
+                if (d < minDist) { minDist = d; closest = c; }
+            }
+            if (valid.length === 1) {
+                closest = valid[0];
+                minDist = haversineM(pt.lat, pt.lon, valid[0].lat, valid[0].lon);
+            }
             if (!closest) return;
 
             // Горизонтальное расстояние (проекция на землю)
