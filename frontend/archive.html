@@ -178,7 +178,7 @@
 <div class="main">
     <div class="sidebar">
         <div class="sidebar-header">
-            <span>Рейсов: <b id="flightCount">—</b> <span id="loadProgress" style="color:#4fc3f7;display:none"></span></span>
+            <span>Рейсов: <b id="flightCount">—</b> <span id="loadProgress" style="color:#4fc3f7;display:none"></span> &nbsp;| Треков: <b id="trackCount">—</b></span>
             <div class="sidebar-actions">
                 <button class="btn btn-outline btn-sm" onclick="selectVisible()">Все</button>
                 <button class="btn btn-outline btn-sm" onclick="clearAll()">Снять</button>
@@ -504,6 +504,8 @@ async function loadArchive(autoSelect = false) {
     const list = document.getElementById('flightList');
     list.innerHTML = '<div class="empty loading">⏳ Загрузка...</div>';
     document.getElementById('flightCount').textContent = '...';
+    const tc0 = document.getElementById('trackCount');
+    if (tc0) { tc0.textContent = '—'; tc0.style.color = ''; }
 
     try {
         const r = await fetch(`/api/archive?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
@@ -674,20 +676,13 @@ async function selectVisible() {
 }
 
 function showCheckResult(total, loaded, empty, failed) {
-    let old = document.getElementById('checkResult');
-    if (old) old.remove();
     const expected = total - empty;
     const ok = loaded === expected && failed === 0;
-    const div = document.createElement('div');
-    div.id = 'checkResult';
-    div.className = 'check-result ' + (ok ? 'pass' : 'fail');
-    if (ok) {
-        div.textContent = '\u2714 ' + loaded + '/' + expected + ' треков на карте';
-    } else {
-        div.textContent = '\u2718 ' + loaded + '/' + expected + ' треков (ошибок: ' + failed + ', пустых: ' + empty + ')';
+    const el = document.getElementById('trackCount');
+    if (el) {
+        el.textContent = ok ? loaded + '/' + expected : loaded + '/' + expected + ' ⚠';
+        el.style.color = ok ? '' : '#ef5350';
     }
-    document.body.appendChild(div);
-    setTimeout(() => { div.style.opacity = '0'; setTimeout(() => div.remove(), 600); }, ok ? 4000 : 10000);
 }
 
 function clearAll() {
@@ -699,8 +694,8 @@ function clearAll() {
         if (cb) cb.checked = false;
     });
     document.getElementById('infoPanel').style.display = 'none';
-    const badge = document.getElementById('checkResult');
-    if (badge) badge.remove();
+    const tc = document.getElementById('trackCount');
+    if (tc) { tc.textContent = '—'; tc.style.color = ''; }
 }
 
 // ── Fit map to all active tracks ──────────────────────────────────────────────
