@@ -1101,9 +1101,10 @@ function fmt(m) {
 }
 
 function clearDistanceLayers() {
-    distanceLayers.forEach(({polyline, labelMarker}) => {
+    distanceLayers.forEach(({polyline, labelMarker, dotMarker}) => {
         map.removeLayer(polyline);
         map.removeLayer(labelMarker);
+        if (dotMarker) map.removeLayer(dotMarker);
     });
     distanceLayers = [];
 }
@@ -1163,7 +1164,11 @@ function recalcDistances() {
             `, { direction: 'top', offset: [0, -8] })
             .addTo(map);
 
-            distanceLayers.push({ polyline, labelMarker });
+            const dotMarker = L.circleMarker([closest.lat, closest.lon], {
+                radius: 5, color: "#fff", weight: 2, fillColor: color, fillOpacity: 1,
+            }).addTo(map);
+
+            distanceLayers.push({ polyline, labelMarker, dotMarker });
         });
     });
 }
