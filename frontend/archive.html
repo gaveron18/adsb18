@@ -504,8 +504,6 @@ async function loadArchive(autoSelect = false) {
     const list = document.getElementById('flightList');
     list.innerHTML = '<div class="empty loading">⏳ Загрузка...</div>';
     document.getElementById('flightCount').textContent = '...';
-    const tc0 = document.getElementById('trackCount');
-    if (tc0) { tc0.textContent = '—'; tc0.style.color = ''; }
 
     try {
         const r = await fetch(`/api/archive?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
@@ -613,12 +611,14 @@ async function addTrack(f, el, color, skipFit = false) {
 
         const layer = buildTrackLayer(valid, f, color).addTo(map);
         activeTracks.set(f.icao, { layer, color, f, el, valid });
+        updateTrackCount();
         if (!skipFit) { fitAll(); showInfo(f, color); }
     } catch(e) {
         console.error('addTrack error:', e);
         const cb = el.querySelector('.fi-check');
         if (cb) cb.checked = false;
         el.classList.remove('active');
+        updateTrackCount();
     }
 }
 
@@ -628,6 +628,7 @@ function removeTrack(icao, el) {
     if (el) { el.classList.remove('active'); el.querySelector('.fi-check').checked = false; }
     if (activeTracks.size === 0) document.getElementById('infoPanel').style.display = 'none';
     else fitAll();
+    updateTrackCount();
 }
 
 // -- Bulk select: load tracks one by one with timeout -------------------------
@@ -672,16 +673,19 @@ async function selectVisible() {
 
     setTimeout(() => { prog.style.display = 'none'; }, 1500);
     fitAll();
-    showCheckResult(items.length, loaded, empty, failed);
 }
 
-function showCheckResult(total, loaded, empty, failed) {
-    const expected = total - empty;
-    const ok = loaded === expected && failed === 0;
+function updateTrackCount() {
+    const checked = document.querySelectorAll('.fi-check:checked').length;
+    const onMap = activeTracks.size;
     const el = document.getElementById('trackCount');
-    if (el) {
-        el.textContent = ok ? loaded + '/' + expected : loaded + '/' + expected + ' ⚠';
-        el.style.color = ok ? '' : '#ef5350';
+    if (!el) return;
+    if (checked === 0) {
+        el.textContent = '—';
+        el.style.color = '';
+    } else {
+        el.textContent = onMap + '/' + checked;
+        el.style.color = onMap < checked ? '#4fc3f7' : '';
     }
 }
 
@@ -694,8 +698,7 @@ function clearAll() {
         if (cb) cb.checked = false;
     });
     document.getElementById('infoPanel').style.display = 'none';
-    const tc = document.getElementById('trackCount');
-    if (tc) { tc.textContent = '—'; tc.style.color = ''; }
+    updateTrackCount();
 }
 
 // ── Fit map to all active tracks ──────────────────────────────────────────────
