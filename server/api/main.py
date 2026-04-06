@@ -480,6 +480,78 @@ async def feeders():
     return [dict(r) for r in rows]
 
 
+@app.get('/api/receiver-log')
+async def receiver_log(
+    from_date: str = Query(None, alias='from'),
+    to_date:   str = Query(None, alias='to'),
+):
+    """Receiver uptime log: sessions with flight and route counts."""
+    now = datetime.now(timezone.utc)
+    t_to   = now
+    t_from = now - timedelta(days=30)
+
+    if from_date:
+        try:
+            d = date.fromisoformat(from_date)
+            t_from = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    if to_date:
+        try:
+            d = date.fromisoformat(to_date)
+            t_to = datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    async with pool.acquire() as conn:
+        minutes = await conn.fetch("""
+            SELECT DISTINCT date_trunc('minute', ts) AS m
+            FROM positions
+            WHERE ts >= $1 AND ts <= $2
+            ORDER BY m
+        """, t_from, t_to)
+
+        if not minutes:
+            return []
+
+        GAP = timedelta(minutes=15)
+        sessions = []
+        sess_start = minutes[0]['m']
+        sess_end   = minutes[0]['m']
+
+        for row in minutes[1:]:
+            m = row['m']
+            if m - sess_end > GAP:
+                sessions.append((sess_start, sess_end + timedelta(minutes=1)))
+                sess_start = m
+            sess_end = m
+        sessions.append((sess_start, sess_end + timedelta(minutes=1)))
+
+        feeder_name = await conn.fetchval(
+            "SELECT name FROM feeders ORDER BY last_connected DESC NULLS LAST LIMIT 1"
+        )
+
+        result = []
+        for start, end in sessions:
+            row = await conn.fetchrow("""
+                SELECT
+                    COUNT(DISTINCT icao)                                     AS flights,
+                    COUNT(DISTINCT CASE WHEN lat IS NOT NULL THEN icao END)  AS routes
+                FROM positions
+                WHERE ts >= $1 AND ts < $2
+            """, start, end)
+            result.append({
+                'feeder':    feeder_name or 'ads-b-pi',
+                'date':      start.astimezone(timezone.utc).strftime('%Y-%m-%d'),
+                'start_utc': start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                'end_utc':   end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                'flights':   row['flights'],
+                'routes':    row['routes'],
+            })
+
+    return result
+
+
 # ── Trace files (tar1090 format for getTrace) ─────────────────────────────────
 
 @app.get('/data/traces/{last2}/{filename}')

@@ -210,6 +210,18 @@
             box-shadow: 0 1px 4px rgba(0,0,0,.7);
         }
 
+
+        /* ── Receiver Log modal ── */
+        .rl-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .rl-table th { background: #0d1b2a; color: #81d4fa; padding: 7px 10px;
+            text-align: left; font-weight: normal; position: sticky; top: 0; white-space: nowrap; }
+        .rl-table td { padding: 6px 10px; border-bottom: 1px solid #1a1a3e; white-space: nowrap; }
+        .rl-table tr:hover td { background: #1a2a4e; }
+        .rl-table .num { text-align: right; }
+        .rl-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+        .rl-filters label { color: #aaa; font-size: 12px; }
+        .rl-filters input[type=date] { background: #0d1b2a; border: 1px solid #4fc3f7;
+            color: #e0e0e0; border-radius: 4px; padding: 4px 6px; font-size: 12px; }
         .check-result {
             position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 2000;
             padding: 8px 18px; border-radius: 6px; font: bold 13px monospace;
@@ -246,6 +258,7 @@
         <button class="btn-icon" id="tzRemoveBtn" title="Удалить" onclick="removeCustomTZ()" style="display:none">✕</button>
     </div>
     <button class="btn-icon" title="Точки измерений" onclick="openPointsModal()">⚙</button>
+    <button class="btn-icon" title="Лог приёмника" onclick="openReceiverLog()">📋</button>
 </div>
 
 <!-- Measurement points modal -->
@@ -300,6 +313,43 @@
           <tr><td colspan="6" class="pt-empty">Загрузка...</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+<!-- Receiver log modal -->
+<div class="modal-overlay" id="receiverLogModal">
+  <div class="modal" style="max-width:780px">
+    <div class="modal-header">
+      <h2>📋 Лог работы приёмника</h2>
+      <button class="modal-close" onclick="closeReceiverLog()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="rl-filters">
+        <label>С <input type="date" id="rlFrom"></label>
+        <label>По <input type="date" id="rlTo"></label>
+        <button class="btn btn-sm" onclick="loadReceiverLog()">Показать</button>
+        <button class="btn btn-outline btn-sm" onclick="exportRlCSV()">⬇ CSV</button>
+        <span id="rlStatus" style="color:#888;font-size:11px"></span>
+      </div>
+      <div style="max-height:420px;overflow-y:auto">
+        <table class="rl-table">
+          <thead>
+            <tr>
+              <th>Приёмник</th>
+              <th>Дата</th>
+              <th>Начало (UTC)</th>
+              <th>Окончание (UTC)</th>
+              <th>Длит.</th>
+              <th class="num">Рейсов</th>
+              <th class="num">Маршрутов</th>
+            </tr>
+          </thead>
+          <tbody id="rlTableBody">
+            <tr><td colspan="7" style="text-align:center;color:#888;padding:20px">—</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -1275,6 +1325,100 @@ function toggleDistances() {
         clearDistanceLayers();
     }
 }
+
+// ── Receiver Log ─────────────────────────────────────────────────────────────
+
+let rlData = [];
+
+function openReceiverLog() {
+    document.getElementById('receiverLogModal').classList.add('open');
+    const rlFrom = document.getElementById('rlFrom');
+    const rlTo   = document.getElementById('rlTo');
+    if (!rlFrom.value) {
+        const today = new Date();
+        rlTo.value   = today.toISOString().slice(0, 10);
+        const ago30  = new Date(today); ago30.setDate(ago30.getDate() - 30);
+        rlFrom.value = ago30.toISOString().slice(0, 10);
+    }
+    loadReceiverLog();
+}
+
+function closeReceiverLog() {
+    document.getElementById('receiverLogModal').classList.remove('open');
+}
+
+async function loadReceiverLog() {
+    const from = document.getElementById('rlFrom').value;
+    const to   = document.getElementById('rlTo').value;
+    const tbody  = document.getElementById('rlTableBody');
+    const status = document.getElementById('rlStatus');
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px">Загрузка...</td></tr>';
+    status.textContent = '';
+    let url = '/api/receiver-log';
+    const p = [];
+    if (from) p.push('from=' + encodeURIComponent(from));
+    if (to)   p.push('to='   + encodeURIComponent(to));
+    if (p.length) url += '?' + p.join('&');
+    try {
+        const r = await fetch(url);
+        rlData = await r.json();
+        renderRlTable();
+        status.textContent = rlData.length + ' сессий';
+    } catch(e) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#ef5350;padding:20px">Ошибка загрузки</td></tr>';
+    }
+}
+
+function renderRlTable() {
+    const tbody = document.getElementById('rlTableBody');
+    if (!rlData.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px">Нет данных за период</td></tr>';
+        return;
+    }
+    tbody.innerHTML = rlData.slice().reverse().map(function(d) {
+        const s   = new Date(d.start_utc);
+        const e   = new Date(d.end_utc);
+        const dur = Math.round((e - s) / 60000);
+        const durStr = dur >= 60
+            ? Math.floor(dur / 60) + 'ч ' + String(dur % 60).padStart(2, '0') + 'м'
+            : dur + ' мин';
+        const fmtT = function(dt) { return dt.toISOString().slice(11, 19); };
+        return '<tr>' +
+            '<td>' + escHtml(d.feeder) + '</td>' +
+            '<td>' + d.date + '</td>' +
+            '<td>' + fmtT(s) + '</td>' +
+            '<td>' + fmtT(e) + '</td>' +
+            '<td>' + durStr + '</td>' +
+            '<td class="num">' + d.flights + '</td>' +
+            '<td class="num">' + d.routes  + '</td>' +
+            '</tr>';
+    }).join('');
+}
+
+function exportRlCSV() {
+    if (!rlData.length) return;
+    const rows = [['Приёмник','Дата','Начало (UTC)','Окончание (UTC)','Длительность мин','Рейсов','Маршрутов']];
+    rlData.forEach(function(d) {
+        const s = new Date(d.start_utc);
+        const e = new Date(d.end_utc);
+        const dur = Math.round((e - s) / 60000);
+        rows.push([d.feeder, d.date,
+            d.start_utc.slice(0,19).replace('T',' '),
+            d.end_utc.slice(0,19).replace('T',' '),
+            dur, d.flights, d.routes]);
+    });
+    const csv = '\uFEFF' + rows.map(function(r) {
+        return r.map(function(v) { return '"' + String(v).replace(/"/g,'""') + '"'; }).join(';');
+    }).join('\n');
+    const a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+    a.download = 'receiver_log_' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
+}
+
+document.getElementById('receiverLogModal').addEventListener('click', function(e) {
+    if (e.target === document.getElementById('receiverLogModal')) closeReceiverLog();
+});
 </script>
 </body>
 </html>
