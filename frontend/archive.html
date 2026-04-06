@@ -1333,6 +1333,14 @@ function openReceiverLog() {
     document.getElementById('receiverLogModal').classList.add('open');
     const rlFrom = document.getElementById('rlFrom');
     const rlTo   = document.getElementById('rlTo');
+    const archiveFrom = document.getElementById('fromDt').value;
+    const archiveTo   = document.getElementById('toDt').value;
+    if (archiveFrom) {
+        rlFrom.value = archiveFrom.slice(0, 10);
+    }
+    if (archiveTo) {
+        rlTo.value = archiveTo.slice(0, 10);
+    }
     if (!rlFrom.value) {
         const today = new Date();
         rlTo.value   = today.toISOString().slice(0, 10);
