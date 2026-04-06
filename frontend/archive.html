@@ -770,14 +770,15 @@ async function loadArchive(autoSelect = false) {
         list.innerHTML = '';
         allFlights.forEach(f => buildFlightItem(f, list));
         if (autoSelect) {
-            const saved = JSON.parse(localStorage.getItem('adsb18_active_tracks') || '[]');
+            let saved = [];
+            try { saved = JSON.parse(localStorage.getItem('adsb18_active_tracks') || '[]'); } catch {}
             if (saved.length) {
                 const savedSet = new Set(saved.map(function(s) { return s.toUpperCase(); }));
                 const items = [...document.querySelectorAll('.flight-item')];
                 for (const el of items) {
                     if (!savedSet.has((el.dataset.icao || '').toUpperCase())) continue;
-                    const cb = el.querySelector('.fi-check');
-                    if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+                    const f = allFlights.find(function(x) { return x.icao.toUpperCase() === (el.dataset.icao || '').toUpperCase(); });
+                    if (f) addTrack(f, el, el.dataset.color, true); // skipFit=true: keep restored map position
                 }
             }
         }
