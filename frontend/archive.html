@@ -1333,6 +1333,7 @@ function recalcDistances() {
                 ptAddress: pt.address || '',
                 callsign,
                 icao:      f.icao,
+                acType:    (f.description || '').trim() || (f.type_code || '').trim(),
                 horizM:    Math.round(horizM),
                 slantM:    Math.round(slantM),
                 altM:      closest.altitude != null ? Math.round(closest.altitude * 0.3048) : null,
@@ -1349,12 +1350,12 @@ function exportDistances() {
     if (!distanceData.length) return;
     const tzLabel = tzOffsetMs >= 0 ? 'UTC+' + tzOffsetMs/3600000 : 'UTC' + tzOffsetMs/3600000;
     const rows = [
-        ['Точка измерения', 'Адрес', 'Рейс', 'ICAO', 'Проекция (м)', 'Удаление (м)', 'Высота (м)', 'Время (' + tzLabel + ')', 'Lat', 'Lon']
+        ['Точка измерения', 'Адрес', 'Рейс', 'ICAO', 'Модель ВС', 'Проекция (м)', 'Удаление (м)', 'Высота (м)', 'Время (' + tzLabel + ')', 'Lat', 'Lon']
     ];
     distanceData.forEach(d => {
         const timeLocal = d.ts ? new Date(new Date(d.ts).getTime() + tzOffsetMs).toISOString().slice(0,19).replace('T', ' ') : '';
         rows.push([
-            d.ptName, d.ptAddress, d.callsign, d.icao,
+            d.ptName, d.ptAddress, d.callsign, d.icao, d.acType || '',
             d.horizM, d.slantM, d.altM ?? '',
             timeLocal, d.lat, d.lon
         ]);
