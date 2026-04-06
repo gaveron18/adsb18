@@ -417,7 +417,15 @@ L.Icon.Default.mergeOptions({
     iconRetinaUrl: 'libs/leaflet/marker-icon.png',
 });
 
-const map = L.map('map').setView([57.914, 56.218], 8);
+const _savedView = (function() { try { return JSON.parse(localStorage.getItem('adsb18_map_view')); } catch { return null; } })();
+const map = L.map('map').setView(
+    _savedView ? [_savedView.lat, _savedView.lng] : [57.914, 56.218],
+    _savedView ? _savedView.zoom : 8
+);
+map.on('moveend zoomend', function() {
+    const c = map.getCenter();
+    localStorage.setItem('adsb18_map_view', JSON.stringify({ lat: c.lat, lng: c.lng, zoom: map.getZoom() }));
+});
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap', maxZoom: 18
 }).addTo(map);
@@ -434,7 +442,7 @@ function nextColor() { return COLORS[colorIdx++ % COLORS.length]; }
 // ── State ─────────────────────────────────────────────────────────────────────
 // activeTracks: icao → { layer, color, f, el }
 const activeTracks = new Map();
-let dotInterval = 5; // km between waypoint dots
+let dotInterval = (function() { const v = parseInt(localStorage.getItem('adsb18_dot_interval')); return isNaN(v) ? 5 : v; })();
 
 // Bearing from point 1 to point 2, degrees 0-360
 function bearingDeg(lat1, lon1, lat2, lon2) {
@@ -514,6 +522,7 @@ function buildTrackLayer(valid, f, color) {
 function onDotIntervalChange() {
     dotInterval = parseInt(document.getElementById('dotIntervalSlider').value);
     document.getElementById('dotIntervalLabel').textContent = dotInterval + ' км';
+    localStorage.setItem('adsb18_dot_interval', dotInterval);
     activeTracks.forEach(t => {
         try {
             const newLayer = buildTrackLayer(t.valid, t.f, t.color).addTo(map);
@@ -714,6 +723,20 @@ function refreshDisplayedTimes() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 buildTZSelect();
 initDatePickers(true);
+// Restore dot interval slider
+(function() {
+    const slider = document.getElementById('dotIntervalSlider');
+    slider.value = dotInterval;
+    document.getElementById('dotIntervalLabel').textContent = dotInterval + ' км';
+})();
+// Restore distances toggle button
+(function() {
+    if (distancesEnabled) {
+        const btn = document.getElementById('distToggleBtn');
+        btn.textContent = '📏 Расстояния: ON';
+        btn.classList.add('active');
+    }
+})();
 loadArchive();
 loadPoints(true);
 
@@ -745,7 +768,18 @@ async function loadArchive(autoSelect = false) {
 
         list.innerHTML = '';
         allFlights.forEach(f => buildFlightItem(f, list));
-        if (autoSelect) selectVisible();
+        if (autoSelect) {
+            const saved = JSON.parse(localStorage.getItem('adsb18_active_tracks') || '[]');
+            if (saved.length) {
+                const savedSet = new Set(saved.map(function(s) { return s.toUpperCase(); }));
+                const items = [...document.querySelectorAll('.flight-item')];
+                for (const el of items) {
+                    if (!savedSet.has((el.dataset.icao || '').toUpperCase())) continue;
+                    const cb = el.querySelector('.fi-check');
+                    if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+                }
+            }
+        }
     } catch(e) {
         list.innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`;
     }
@@ -839,12 +873,14 @@ async function fetchTrackPoints(f, ms = 10000) {
 function registerTrack(icao, layer, color, f, el, valid) {
     activeTracks.set(icao, { layer, color, f, el, valid });
     updateTrackCount();
+    localStorage.setItem('adsb18_active_tracks', JSON.stringify([...activeTracks.keys()]));
 }
 
 function unregisterTrack(icao) {
     const t = activeTracks.get(icao);
     if (t) { map.removeLayer(t.layer); activeTracks.delete(icao); }
     updateTrackCount();
+    localStorage.setItem('adsb18_active_tracks', JSON.stringify([...activeTracks.keys()]));
 }
 
 // ── Layer 3: UI ───────────────────────────────────────────────────────────────
@@ -1168,7 +1204,7 @@ document.getElementById('pointsModal').addEventListener('click', e => {
 
 // ── Distances calculation ─────────────────────────────────────────────────────
 
-let distancesEnabled = false;
+let distancesEnabled = localStorage.getItem('adsb18_distances') === '1';
 let distanceLayers = []; // [{polyline, labelMarker}]
 let distanceData   = []; // raw results for export
 
@@ -1324,6 +1360,7 @@ function exportDistances() {
 
 function toggleDistances() {
     distancesEnabled = !distancesEnabled;
+    localStorage.setItem('adsb18_distances', distancesEnabled ? '1' : '0');
     const btn = document.getElementById('distToggleBtn');
     if (distancesEnabled) {
         btn.textContent = '📏 Расстояния: ON';
