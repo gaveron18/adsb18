@@ -338,8 +338,8 @@
             <tr>
               <th>Приёмник</th>
               <th>Дата</th>
-              <th>Начало (UTC)</th>
-              <th>Окончание (UTC)</th>
+              <th id="rlThStart">Начало (UTC)</th>
+              <th id="rlThEnd">Окончание (UTC)</th>
               <th>Длит.</th>
               <th class="num">Маршрутов</th>
             </tr>
@@ -569,6 +569,7 @@ function onTZChange() {
     refreshDisplayedTimes();
     initDatePickers();
     recalcDistances();
+    if (rlData.length) renderRlTable();
 }
 
 function addCustomTZ() {
@@ -1389,10 +1390,17 @@ function renderRlTable() {
         const durStr = dur >= 60
             ? Math.floor(dur / 60) + 'ч ' + String(dur % 60).padStart(2, '0') + 'м'
             : dur + ' мин';
-        const fmtT = function(dt) { return dt.toISOString().slice(11, 19); };
+        const thStart = document.getElementById('rlThStart');
+        const thEnd   = document.getElementById('rlThEnd');
+        if (thStart) thStart.textContent = 'Начало (' + tzLabel + ')';
+        if (thEnd)   thEnd.textContent   = 'Окончание (' + tzLabel + ')';
+        const fmtT = function(dt) {
+            return new Date(dt.getTime() + tzOffsetMs).toISOString().slice(11, 19);
+        };
+        const dateLocal = new Date(s.getTime() + tzOffsetMs).toISOString().slice(0, 10);
         return '<tr>' +
             '<td>' + escHtml(d.feeder) + '</td>' +
-            '<td>' + d.date + '</td>' +
+            '<td>' + dateLocal + '</td>' +
             '<td>' + fmtT(s) + '</td>' +
             '<td>' + fmtT(e) + '</td>' +
             '<td>' + durStr + '</td>' +
