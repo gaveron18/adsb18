@@ -533,10 +533,8 @@ async def receiver_log(
 
         result = []
         for start, end in sessions:
-            row = await conn.fetchrow("""
-                SELECT
-                    COUNT(DISTINCT icao)                                     AS flights,
-                    COUNT(DISTINCT CASE WHEN lat IS NOT NULL THEN icao END)  AS routes
+            routes = await conn.fetchval("""
+                SELECT COUNT(DISTINCT icao)
                 FROM positions
                 WHERE ts >= $1 AND ts < $2
             """, start, end)
@@ -545,8 +543,7 @@ async def receiver_log(
                 'date':      start.astimezone(timezone.utc).strftime('%Y-%m-%d'),
                 'start_utc': start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
                 'end_utc':   end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-                'flights':   row['flights'],
-                'routes':    row['routes'],
+                'routes':    routes,
             })
 
     return result

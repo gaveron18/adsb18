@@ -341,12 +341,11 @@
               <th>Начало (UTC)</th>
               <th>Окончание (UTC)</th>
               <th>Длит.</th>
-              <th class="num">Рейсов</th>
               <th class="num">Маршрутов</th>
             </tr>
           </thead>
           <tbody id="rlTableBody">
-            <tr><td colspan="7" style="text-align:center;color:#888;padding:20px">—</td></tr>
+            <tr><td colspan="6" style="text-align:center;color:#888;padding:20px">—</td></tr>
           </tbody>
         </table>
       </div>
@@ -1352,7 +1351,7 @@ async function loadReceiverLog() {
     const to   = document.getElementById('rlTo').value;
     const tbody  = document.getElementById('rlTableBody');
     const status = document.getElementById('rlStatus');
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px">Загрузка...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">Загрузка...</td></tr>';
     status.textContent = '';
     let url = '/api/receiver-log';
     const p = [];
@@ -1365,14 +1364,14 @@ async function loadReceiverLog() {
         renderRlTable();
         status.textContent = rlData.length + ' сессий';
     } catch(e) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#ef5350;padding:20px">Ошибка загрузки</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#ef5350;padding:20px">Ошибка загрузки</td></tr>';
     }
 }
 
 function renderRlTable() {
     const tbody = document.getElementById('rlTableBody');
     if (!rlData.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px">Нет данных за период</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">Нет данных за период</td></tr>';
         return;
     }
     tbody.innerHTML = rlData.slice().reverse().map(function(d) {
@@ -1389,7 +1388,6 @@ function renderRlTable() {
             '<td>' + fmtT(s) + '</td>' +
             '<td>' + fmtT(e) + '</td>' +
             '<td>' + durStr + '</td>' +
-            '<td class="num">' + d.flights + '</td>' +
             '<td class="num">' + d.routes  + '</td>' +
             '</tr>';
     }).join('');
@@ -1397,7 +1395,7 @@ function renderRlTable() {
 
 function exportRlCSV() {
     if (!rlData.length) return;
-    const rows = [['Приёмник','Дата','Начало (UTC)','Окончание (UTC)','Длительность мин','Рейсов','Маршрутов']];
+    const rows = [['Приёмник','Дата','Начало (UTC)','Окончание (UTC)','Длительность мин','Маршрутов']];
     rlData.forEach(function(d) {
         const s = new Date(d.start_utc);
         const e = new Date(d.end_utc);
@@ -1405,7 +1403,7 @@ function exportRlCSV() {
         rows.push([d.feeder, d.date,
             d.start_utc.slice(0,19).replace('T',' '),
             d.end_utc.slice(0,19).replace('T',' '),
-            dur, d.flights, d.routes]);
+            dur, d.routes]);
     });
     const csv = '\uFEFF' + rows.map(function(r) {
         return r.map(function(v) { return '"' + String(v).replace(/"/g,'""') + '"'; }).join(';');
