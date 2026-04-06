@@ -218,6 +218,8 @@
         .modal-light .modal-header h2 { color: #1a4a7a; }
         .modal-light .modal-close { color: #555; }
         .modal-light .modal-close:hover { color: #000; }
+        .modal-light .btn-outline { border-color: #1a7abf; color: #1a7abf; }
+        .modal-light .btn-outline:hover { background: #e8f4ff; }
         .rl-table { width: 100%; border-collapse: collapse; font-size: 12px; }
         .rl-table th { background: #e8eef5; color: #1a4a7a; padding: 7px 10px;
             text-align: left; font-weight: 600; position: sticky; top: 0; white-space: nowrap;
@@ -1380,6 +1382,7 @@ async function loadReceiverLog() {
         renderRlTable();
         status.textContent = rlData.length + ' сессий'; status.style.color = '#666';
     } catch(e) {
+        rlData = [];
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#ef5350;padding:20px">Ошибка загрузки</td></tr>';
     }
 }
@@ -1390,6 +1393,13 @@ function renderRlTable() {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">Нет данных за период</td></tr>';
         return;
     }
+    const thStart = document.getElementById('rlThStart');
+    const thEnd   = document.getElementById('rlThEnd');
+    if (thStart) thStart.textContent = 'Начало (' + tzLabel + ')';
+    if (thEnd)   thEnd.textContent   = 'Окончание (' + tzLabel + ')';
+    const fmtT = function(dt) {
+        return new Date(dt.getTime() + tzOffsetMs).toISOString().slice(11, 19);
+    };
     tbody.innerHTML = rlData.slice().reverse().map(function(d) {
         const s   = new Date(d.start_utc);
         const e   = new Date(d.end_utc);
@@ -1397,13 +1407,6 @@ function renderRlTable() {
         const durStr = dur >= 60
             ? Math.floor(dur / 60) + 'ч ' + String(dur % 60).padStart(2, '0') + 'м'
             : dur + ' мин';
-        const thStart = document.getElementById('rlThStart');
-        const thEnd   = document.getElementById('rlThEnd');
-        if (thStart) thStart.textContent = 'Начало (' + tzLabel + ')';
-        if (thEnd)   thEnd.textContent   = 'Окончание (' + tzLabel + ')';
-        const fmtT = function(dt) {
-            return new Date(dt.getTime() + tzOffsetMs).toISOString().slice(11, 19);
-        };
         const dateLocal = new Date(s.getTime() + tzOffsetMs).toISOString().slice(0, 10);
         return '<tr>' +
             '<td>' + escHtml(d.feeder) + '</td>' +
@@ -1418,15 +1421,17 @@ function renderRlTable() {
 
 function exportRlCSV() {
     if (!rlData.length) return;
-    const rows = [['Приёмник','Дата','Начало (UTC)','Окончание (UTC)','Длительность мин','Маршрутов']];
+    const tzCol = tzLabel;
+    const rows = [['Приёмник','Дата','Начало (' + tzCol + ')','Окончание (' + tzCol + ')','Длительность мин','Маршрутов']];
     rlData.forEach(function(d) {
         const s = new Date(d.start_utc);
         const e = new Date(d.end_utc);
         const dur = Math.round((e - s) / 60000);
-        rows.push([d.feeder, d.date,
-            d.start_utc.slice(0,19).replace('T',' '),
-            d.end_utc.slice(0,19).replace('T',' '),
-            dur, d.routes]);
+        const fmtCSV = function(dt) {
+            return new Date(dt.getTime() + tzOffsetMs).toISOString().slice(0,19).replace('T',' ');
+        };
+        const dateLocal = new Date(s.getTime() + tzOffsetMs).toISOString().slice(0,10);
+        rows.push([d.feeder, dateLocal, fmtCSV(s), fmtCSV(e), dur, d.routes]);
     });
     const csv = '\uFEFF' + rows.map(function(r) {
         return r.map(function(v) { return '"' + String(v).replace(/"/g,'""') + '"'; }).join(';');
