@@ -456,8 +456,11 @@ function onDotIntervalChange() {
     dotInterval = parseInt(document.getElementById('dotIntervalSlider').value);
     document.getElementById('dotIntervalLabel').textContent = dotInterval + ' км';
     activeTracks.forEach(t => {
-        map.removeLayer(t.layer);
-        t.layer = buildTrackLayer(t.valid, t.f, t.color).addTo(map);
+        try {
+            const newLayer = buildTrackLayer(t.valid, t.f, t.color).addTo(map);
+            map.removeLayer(t.layer);
+            t.layer = newLayer;
+        } catch(e) { console.error('onDotIntervalChange rebuild error:', e); }
     });
 }
 let allFlights = [];
@@ -794,7 +797,7 @@ function removeTrack(icao, el) {
     if (activeTracks.size === 0) document.getElementById('infoPanel').style.display = 'none';
     else fitAll();
     updateTrackCount();
-    recalcDistances();
+    try { recalcDistances(); } catch(re) { console.error('recalcDistances error:', re); }
 }
 
 // -- Bulk select: load tracks one by one with timeout -------------------------
@@ -826,6 +829,9 @@ async function selectVisible() {
             const pts = await fetchWithTimeout(url, 8000).then(r => r.json());
             const valid = pts.filter(p => p.lat != null && p.lon != null);
             if (!valid.length) { empty++; el.querySelector('.fi-check').checked = false; el.classList.remove('active'); updateTrackCount(); continue; }
+            // Guard: if clearAll() ran while we were fetching — abort
+            const cb2 = el.querySelector('.fi-check');
+            if (!cb2 || !cb2.checked) continue;
             const layer = buildTrackLayer(valid, f, color).addTo(map);
             activeTracks.set(icao, { layer, color, f, el, valid });
             loaded++;
@@ -840,7 +846,7 @@ async function selectVisible() {
 
     setTimeout(() => { prog.style.display = 'none'; }, 1500);
     fitAll();
-    recalcDistances();
+    try { recalcDistances(); } catch(re) { console.error('recalcDistances error:', re); }
 }
 
 function updateTrackCount() {
