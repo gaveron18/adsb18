@@ -594,8 +594,7 @@ function applyTZFromSelect() {
 
 function onTZChange() {
     applyTZFromSelect();
-    refreshDisplayedTimes();
-    initDatePickers();
+    refreshDisplayedTimes(); // конвертирует существующие значения полей в новую TZ
     recalcDistances();
     if (rlData.length) renderRlTable();
 }
@@ -703,7 +702,7 @@ function savePeriod() {
 
 function resetSession() {
     if (!confirm("Сбросить сессию? Период, треки и настройки карты будут очищены.")) return;
-    ["adsb18_period","adsb18_active_tracks","adsb18_map_view","adsb18_dot_interval","adsb18_distances"].forEach(k => localStorage.removeItem(k));
+    ["adsb18_period","adsb18_active_tracks","adsb18_map_view","adsb18_dot_interval","adsb18_distances","adsb18_points_visible"].forEach(k => localStorage.removeItem(k));
     location.reload();
 }
 
@@ -862,6 +861,7 @@ async function deleteFlight(btn) {
         const data = await r.json();
         // Remove from active tracks if loaded
         removeTrack(icao, el);
+        allFlights = allFlights.filter(f => f.icao !== icao);
         el.remove();
     } catch (e) {
         alert('Ошибка удаления: ' + e.message);
@@ -1001,7 +1001,7 @@ function clearAll() {
     });
     document.getElementById('infoPanel').style.display = 'none';
     updateTrackCount();
-    recalcDistances();
+    try { recalcDistances(); } catch (e) { console.error('clearAll recalcDistances:', e); }
 }
 
 // ── Fit map to all active tracks ──────────────────────────────────────────────
@@ -1194,13 +1194,17 @@ async function savePoint() {
 
 async function deletePoint(id) {
     if (!confirm('Удалить точку?')) return;
-    const r = await fetch(`/api/points/${id}`, { method: 'DELETE' });
-    if (!r.ok) { alert('Ошибка удаления'); return; }
-    const m = pointMarkers.get(id);
-    if (m) { map.removeLayer(m); pointMarkers.delete(id); }
-    pointsData = pointsData.filter(x => x.id !== id);
-    if (editingPointId === id) cancelEditPoint();
-    renderPointsTable();
+    try {
+        const r = await fetch(`/api/points/${id}`, { method: 'DELETE' });
+        if (!r.ok) { alert('Ошибка удаления'); return; }
+        const m = pointMarkers.get(id);
+        if (m) { map.removeLayer(m); pointMarkers.delete(id); }
+        pointsData = pointsData.filter(x => x.id !== id);
+        if (editingPointId === id) cancelEditPoint();
+        renderPointsTable();
+    } catch (e) {
+        alert('Ошибка удаления: ' + e.message);
+    }
 }
 
 // Close modal on overlay click
