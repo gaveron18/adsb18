@@ -687,15 +687,11 @@ function initDatePickers(restore = false) {
             return;
         }
     }
-    const nowInTZ = new Date(Date.now() + tzOffsetMs);
-    const startOfDayUTC = new Date(Date.UTC(
-        nowInTZ.getUTCFullYear(), nowInTZ.getUTCMonth(), nowInTZ.getUTCDate()
-    ) - tzOffsetMs).toISOString();
-    const endOfDayUTC = new Date(Date.UTC(
-        nowInTZ.getUTCFullYear(), nowInTZ.getUTCMonth(), nowInTZ.getUTCDate() + 1
-    ) - tzOffsetMs).toISOString();
-    document.getElementById('fromDt').value = utcToInput(startOfDayUTC);
-    document.getElementById('toDt').value   = utcToInput(endOfDayUTC);
+    const now = Date.now();
+    const from24h = new Date(now - 24 * 3600000).toISOString();
+    const to24h   = new Date(now + 3600000).toISOString();
+    document.getElementById('fromDt').value = utcToInput(from24h);
+    document.getElementById('toDt').value   = utcToInput(to24h);
 }
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
@@ -762,7 +758,6 @@ async function loadArchive(autoSelect = false) {
     const from = inputToUTC(document.getElementById('fromDt').value);
     const to   = inputToUTC(document.getElementById('toDt').value);
     if (!from || !to) { alert('Выберите период'); return; }
-    savePeriod();
 
     clearAll();
     colorIdx = 0;
@@ -784,6 +779,7 @@ async function loadArchive(autoSelect = false) {
             return;
         }
 
+        savePeriod();
         list.innerHTML = '';
         allFlights.forEach(f => buildFlightItem(f, list));
         if (autoSelect) {
