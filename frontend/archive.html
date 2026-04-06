@@ -737,7 +737,7 @@ initDatePickers(true);
         btn.classList.add('active');
     }
 })();
-loadArchive();
+loadArchive(true);
 loadPoints(true);
 
 // ── Load flight list ──────────────────────────────────────────────────────────
@@ -750,6 +750,7 @@ async function loadArchive(autoSelect = false) {
     clearAll();
     colorIdx = 0;
     allFlights = [];
+    if (!autoSelect) localStorage.removeItem('adsb18_active_tracks');
 
     const list = document.getElementById('flightList');
     list.innerHTML = '<div class="empty loading">⏳ Загрузка...</div>';
