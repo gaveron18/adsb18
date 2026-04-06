@@ -823,8 +823,9 @@ async function addTrack(f, el, color, skipFit = false) {
 }
 
 function removeTrack(icao, el) {
-    unregisterTrack(icao);
+    // setItemActive first so updateTrackCount inside unregisterTrack reads correct DOM state
     if (el) setItemActive(el, false);
+    unregisterTrack(icao);
     if (activeTracks.size === 0) document.getElementById('infoPanel').style.display = 'none';
     else fitAll();
     try { recalcDistances(); } catch(re) { console.error('recalcDistances error:', re); }
