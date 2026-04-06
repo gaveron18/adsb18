@@ -217,6 +217,7 @@ crontab -l | sed 's|^\*/5|#*/5|' | crontab -
 - Изменения Pi — только через репо + `bash feeder/update_pi.sh`
 - **Никогда не редактировать файлы напрямую на Pi**
 - Читать TROUBLESHOOTING.md перед работой
+- **После исправления любого бага — сразу записать в TROUBLESHOOTING.md И в раздел Закрытые баги этого файла**
 - Перед `git push` в archive.html — пройти чек-лист из TESTING.md
 
 ---
@@ -266,3 +267,4 @@ git push
 - [x] selectVisible race condition — guard !cb2.checked после await (2026-04-06)
 - [x] onDotIntervalChange — build new layer before removeLayer (2026-04-06)
 - [x] removeTrack updateTrackCount порядок — setItemActive до unregisterTrack (2026-04-06)
+- [x] nginx gzip off для /api/ — треки 200+ точек не грузились (47KB → AbortError); gzip on + gzip_types application/json (2026-04-06)

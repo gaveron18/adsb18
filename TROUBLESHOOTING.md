@@ -647,3 +647,32 @@ gzip -k frontend/новый_файл.js
 3. Если `Content-Length` нет → файл отдаётся chunked → создать `.gz` файл
 4. Пошаговая диагностика: создать тест-страницу с `onload`/`onerror` для каждого ресурса
 
+
+---
+
+## Сессия 2026-04-06
+
+### ПРОБЛЕМА: Трек рейса с 200+ точками не загружается в archive.html (AbortError)
+
+**Симптомы:**
+- Кликаешь на рейс — галочка ставится, потом слетает через ~10 сек, трек не появляется
+- Консоль браузера: `addTrack error: AbortError: signal is aborted without reason`
+- Другие рейсы (с меньшим числом точек) загружаются нормально
+- На сервере curl отвечает за 60ms
+
+**Причина:**
+В nginx конфиге `/etc/nginx/sites-enabled/adsb18` для location `/api/` стояло `gzip off`.
+Рейс с 222 точками → JSON 47 939 байт без сжатия.
+Браузер не успевал скачать за 10-секундный таймаут `fetchWithTimeout` в archive.html.
+Диагностика через nginx access log: запрос 151D54 занимал 8 секунд, при плохой сети > 10с.
+
+**Решение:**
+В `/etc/nginx/sites-enabled/adsb18`, в блоке `location ^~ /api/` заменить `gzip off` на:
+```nginx
+gzip on;
+gzip_types application/json;
+gzip_min_length 1024;
+```
+Затем: `sudo nginx -t && sudo systemctl reload nginx`
+
+**Результат:** 47 939 байт → 5 853 байта (сжатие в 8 раз).
