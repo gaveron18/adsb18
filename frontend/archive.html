@@ -776,7 +776,7 @@ async function addTrack(f, el, color, skipFit = false) {
         const layer = buildTrackLayer(valid, f, color).addTo(map);
         activeTracks.set(f.icao, { layer, color, f, el, valid });
         updateTrackCount();
-        recalcDistances();
+        try { recalcDistances(); } catch(re) { console.error('recalcDistances error:', re); }
         if (!skipFit) { fitAll(); showInfo(f, color); }
     } catch(e) {
         console.error('addTrack error:', e);
@@ -1127,7 +1127,7 @@ function fmt(m) {
 function clearDistanceLayers() {
     distanceLayers.forEach(({polyline, labelMarker, dotMarker}) => {
         map.removeLayer(polyline);
-        map.removeLayer(labelMarker);
+        if (labelMarker) map.removeLayer(labelMarker);
         if (dotMarker) map.removeLayer(dotMarker);
     });
     distanceLayers = [];
