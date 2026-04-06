@@ -1,123 +1,238 @@
-# adsb18 — CLAUDE.md
+# CLAUDE.md — adsb18
+
+Этот файл читается автоматически при запуске Claude из папки проекта.
+Общайся по-русски. Имя пользователя: Андрей.
+
+---
 
 ## Проект
+
 ADS-B сервер сбора и визуализации данных о воздушных судах.
 
-- **Репозиторий:** https://github.com/gaveron18/adsb18
-- **Веб-интерфейс:** http://173.249.2.184:8098
-- **Папка на VPS:** `/home/new/adsb18/`
+- **VPS:** `new@173.249.2.184` · `/home/new/adsb18/`
+- **GitHub:** https://github.com/gaveron18/adsb18
+- **Веб:** http://173.249.2.184:8098
+- **Стек:** Python 3.12, FastAPI, asyncpg, PostgreSQL 16, nginx, systemd
 
 ---
 
-## Инфраструктура (PRODUCTION)
+## Обязательно при старте сессии
 
-### Сервер (VPS, 173.249.2.184)
-Деплой через **systemd** (НЕ Docker):
+1. `ssh new@173.249.2.184 "cat /home/new/adsb18/ARCHITECTURE.md"`
+2. `ssh new@173.249.2.184 "cat /home/new/adsb18/TROUBLESHOOTING.md"`
+3. `ssh new@173.249.2.184 "ls /home/new/adsb18/docs/session_*.md | tail -1 | xargs cat"`
 
-| Сервис | Порт | Команда |
-|--------|------|---------|
-| PostgreSQL 16 | 5432 | `sudo systemctl status postgresql` |
-| adsb18-ingest | 30001 | `sudo systemctl status adsb18-ingest` |
-| adsb18-api | 9001 | `sudo systemctl status adsb18-api` |
-| nginx | 8098 | `sudo systemctl status nginx` |
+---
 
-- Virtualenv: `/opt/adsb18-venv/`
-- Логи: `sudo journalctl -u adsb18-ingest -f` / `sudo journalctl -u adsb18-api -f`
+## Архитектура (актуальная — poller режим)
 
-### Raspberry Pi (фидер)
-- IP в локальной сети: 192.168.1.170, пользователь: ads-b
-- Прямого доступа с VPS нет — используется обратный SSH-туннель
-- **Зайти на Pi с VPS:** `ssh -p 52222 ads-b@127.0.0.1`
-- Туннель: `-R 52222:localhost:22` (SSH) + `-L 30091:localhost:30001` (данные)
-- Перезапуск туннеля: `sudo systemctl restart adsb-tunnel` (SSH оборвётся на ~15 сек)
-- Pi подключается на `127.0.0.1:30091`, а НЕ напрямую на :30001 (роутер дропает пакеты)
-
-### Переменные окружения ingest
 ```
-DATABASE_URL=postgresql://adsb:adsb2024@localhost:5432/adsb18
-INGEST_HOST=0.0.0.0
-INGEST_PORT=30001
+[RTL-SDR на Pi] → [readsb] → aircraft.json (:80)
+                                    ↓ SSH reverse tunnel (-R 30092:localhost:80)
+                             VPS :30092 (HTTP туннель)
+                                    ↓ curl каждую секунду
+                             [poller.py] → process_snapshot()
+                                    ↓
+                             [PostgreSQL 16]
+                                    ↓
+                             [FastAPI :9001]
+                                    ↓
+                             [nginx :8098]
 ```
 
 ---
 
-## Архитектура
+## Сервисы (systemd, НЕ Docker)
+
+| Сервис | Порт | Примечание |
+|--------|------|------------|
+| PostgreSQL 16 | 5432 | running, enabled |
+| adsb18-poller | — | **ОСНОВНОЙ** — опрашивает Pi aircraft.json каждую секунду |
+| adsb18-api | 9001 | FastAPI |
+| nginx | 8098 | отдаёт frontend + проксирует /api/ и /data/ |
+| adsb18-ingest | 30001 | **MASKED → /dev/null** — не запускать! |
+| adsb18-feeder (Pi) | — | disabled — не нужен при poller-архитектуре |
+
+Перезапуск после изменений:
+```bash
+sudo systemctl restart adsb18-poller
+sudo systemctl restart adsb18-api
+```
+
+Логи:
+```bash
+sudo journalctl -u adsb18-api -f
+sudo journalctl -u adsb18-poller -f
+```
+
+---
+
+## Raspberry Pi (фидер)
+
+- Подключиться с VPS: `ssh -p 52222 ads-b@127.0.0.1`
+- Туннель Pi→VPS: порт 30092 (HTTP, aircraft.json), порт 52222 (SSH)
+- readsb отдаёт aircraft.json на Pi:80/tar1090/data/aircraft.json
+- Туннель на Pi: systemd-сервис `adsb-tunnel`
+
+### tar1090 настройки Pi (`/etc/default/tar1090`)
+- INTERVAL=8 (сек между снапшотами)
+- HISTORY_SIZE=450 (1 час в основном интерфейсе)
+- PTRACKS=8 (часов для /?pTracks) — **отложено: увеличить до 24**
+- CHUNK_SIZE=20, GZIP_LVL=1
+
+---
+
+## Структура файлов
 
 ```
-[RTL-SDR на Pi] → [dump1090] → [feeder.py] → TCP :30091 → SSH-туннель → :30001
-                                                                              ↓
-                                                                    [ingest/main.py]
-                                                                              ↓
-                                                                    [PostgreSQL 16]
-                                                                              ↓
-                                                                    [FastAPI :9001]
-                                                                              ↓
-                                                                    [nginx :8098]
+server/
+  ingest/
+    main.py       — TCP-сервер AUTH/AUTH-JSON (ЗАМЕНЁН поллером, не используется)
+    sbs_parser.py — парсит SBS строки → SBSMessage dataclass
+    db.py         — буфер + PostgreSQL writer, process_snapshot()
+    poller.py     — curl aircraft.json каждую секунду, пишет в БД
+  api/
+    main.py       — FastAPI: /data/aircraft.json, /api/history, /api/feeders,
+                    /api/archive, DELETE /api/flight, /ws, /api/monitor
+  db/
+    init.sql      — схема БД: positions (партиц.), aircraft, feeders
+feeder/
+  feeder.py       — SBS-режим (НЕ используется при poller-архитектуре)
+  update_pi.sh    — деплой изменений на Pi
+frontend/
+  archive.html    — страница архива рейсов (Leaflet)
+  index.html      — живая карта (OpenLayers / tar1090)
+nginx.conf
+healthcheck.py    — healthcheck с Telegram алертами
+TESTING.md        — чек-лист ручного тестирования archive.html
+TROUBLESHOOTING.md
+ARCHITECTURE.md
+docs/session_*.md — логи сессий
 ```
 
-Стек: Python 3.12, FastAPI, asyncpg, PostgreSQL 16, nginx, systemd.
+---
+
+## Ключевая логика кода
+
+### ingest/db.py (poller.py использует те же функции)
+- `_state[icao]` — in-memory объединение полей по ICAO (merge MSG,1 + MSG,3 + MSG,4)
+- `_valid_position()` — фильтр призрачных позиций (скорость > 800 уз → отброс)
+- `_batch[]` — позиции с lat/lon для таблицы positions
+- `_last_pos_ts[icao]` — дедупликация: не писать повторную позицию с тем же ts
+- `writer_loop()` — каждые 2с флашит батчи в PostgreSQL
+- `process_snapshot()` — парсит aircraft.json, `lastPosition` fallback если seen_pos < 120с
+- `MAX_SEEN_POS_SECS=60` — порог для lastPosition fallback
+
+### server/api/main.py
+- `/data/aircraft.json` — Primary: проксирует Pi (:30092), Fallback: SELECT из DB
+- `/api/archive` — список рейсов за период (GROUP BY icao, MAX callsign)
+- `/api/monitor` — сравнивает Pi live vs DB за последние 120с
+- `monitor_task()` — фоновая задача каждые 30с
+
+### frontend/archive.html (Leaflet)
+Разбит на 4 слоя (рефакторинг 2026-04-06):
+- **Layer 1 Network:** `fetchTrackPoints`, `fetchWithTimeout` — только HTTP
+- **Layer 2 State:** `registerTrack`, `unregisterTrack` — только activeTracks Map
+- **Layer 3 UI:** `setItemActive`, `isItemChecked` — только checkbox/CSS
+- **Layer 4 Orchestrators:** `addTrack`, `removeTrack`, `selectVisible` — вызывают слои 1-3
 
 ---
 
 ## База данных
 
-- `positions` — партиционирована по месяцам (positions_2026_03, etc.)
-- `aircraft` — живое состояние каждого борта
-- `feeders` — подключённые приёмники
-- Партиции старше 6 месяцев удаляются автоматически
-- `partition_watchdog()` создаёт следующую партицию каждые 24ч
+```
+postgresql://adsb:adsb2024@localhost:5432/adsb18
+```
+
+- `positions` — PARTITION BY RANGE (ts), партиции по месяцам (positions_2026_04)
+- `aircraft` — живое состояние + история (last_seen, first_seen, msg_count)
+- `feeders` — имя, координаты, last_connected, msg_count
+- `partition_watchdog()` — создаёт current + next 2 партиции, раз в сутки
+- `drop_old_partitions(keep_months=6)` — **не вызывается автоматически**, нужен cron
+
+Полезные запросы:
+```sql
+SELECT max(ts) FROM positions;                          -- последняя позиция
+SELECT count(*) FROM positions_2026_04;                -- кол-во записей за апрель
+SELECT name, last_connected, msg_count FROM feeders ORDER BY last_connected DESC LIMIT 5;
+```
 
 ---
 
-## Известные проблемы (все решены)
+## Healthcheck (настроен 2026-04-06)
 
-1. **asyncio starvation в ingest** — `await asyncio.sleep(0)` каждые 50 строк по `line_count` (НЕ `msg_count` — MSG,8 парсится как None)
-2. **Партиции БД** — при смене месяца нет партиции → INSERT падают. Фикс: `partition_watchdog()`
-3. **Роутер Pi дропает пакеты к VPS:30001** — трафик идёт через SSH-туннель
-4. **asyncio starvation в feeder.py** — `await asyncio.sleep(0)` + `drain()` каждые 50 сообщений
-5. **nginx Permission denied** — `sudo chmod o+x /home/new`
-6. **UFW**: порт 30001 должен быть открыт (`sudo ufw allow 30001/tcp`)
+- **Скрипт:** `/home/new/adsb18/healthcheck.py`
+- **Cron пользователя `new`:** `*/5 * * * *` — каждые 5 минут
+- **Лог:** `/var/log/adsb18-healthcheck.log`
+- **Telegram:** бот @adsb18_monitor_bot, chat_id=357650937
+- **Проверяет:** API :9001, свежесть позиций (порог 10 мин), фидер (порог 15 мин), туннель Pi :30092
+- **venv:** `/opt/adsb18-venv` (psycopg2-binary установлен через `sudo pip`)
 
-Подробности: **TROUBLESHOOTING.md** в этом репозитории.
+Включить cron (когда Pi включён):
+```bash
+crontab -l | sed 's|^#\*/5|\*/5|' | crontab -
+```
+
+Отключить cron (когда Pi выключен):
+```bash
+crontab -l | sed 's|^\*/5|#*/5|' | crontab -
+```
 
 ---
 
 ## Правила работы
 
-- Деплой: **systemd, не Docker** — `docker-compose.yml` оставлен для справки, НЕ использовать на проде
-- При любых изменениях ingest или api: `sudo systemctl restart adsb18-ingest` / `sudo systemctl restart adsb18-api`
-- После фикса бага — добавить запись в **TROUBLESHOOTING.md**
-- В начале сессии читать TROUBLESHOOTING.md чтобы не повторять старые ошибки
+- Деплой: **systemd, НЕ Docker** (docker-compose.yml — только для справки)
+- **После изменения frontend JS/HTML:** `gzip -k -f frontend/archive.html` — nginx использует `gzip_static on`
+- Изменения Pi — только через репо + `bash feeder/update_pi.sh`
+- **Никогда не редактировать файлы напрямую на Pi**
+- Читать TROUBLESHOOTING.md перед работой
+- Перед `git push` в archive.html — пройти чек-лист из TESTING.md
 
 ---
 
-## Pi — правила изменений и деплоя
+## Git workflow
 
-**Репо = единственный источник правды для Pi.**
-Все изменения кода и конфига Pi делаются в репо, затем применяются скриптом.
-
-### Изменить что-то на Pi:
-1. Внести изменение в репо (`feeder/feeder.py`, `feeder/adsb-tunnel.service`, `feeder/adsb18-feeder.service`)
-2. Закоммитить и запушить
-3. Применить на Pi:
 ```bash
-git pull
-bash feeder/update_pi.sh
+# Обычный деплой
+git add ...
+git commit -m "..."
+git push
+
+# После изменений frontend
+gzip -k -f frontend/archive.html
+git add frontend/archive.html frontend/archive.html.gz
+git commit -m "..."
+git push
 ```
 
-### Проверить расхождения без применения:
-```bash
-bash feeder/update_pi.sh --check
-```
+**Session лог обновляется в том же коммите что и код** — не пушить код без лога.
 
-### Деплой на новый Pi (с нуля):
-```bash
-# На новом Pi:
-git clone https://github.com/gaveron18/adsb18.git
-sudo bash adsb18/feeder/install.sh --vps-ip 173.249.2.184 --vps-user new --name ИМЯ-PI
+При завершении сессии ("завершаем"):
+1. Финальное обновление `docs/session_ДАТА.md`
+2. Обновить `ARCHITECTURE.md` если были изменения в коде
+3. Git push
 
-# На VPS — добавить публичный ключ нового Pi:
-echo 'ПУБЛИЧНЫЙ_КЛЮЧ' >> ~/.ssh/authorized_keys
-```
+---
 
-**Никогда не редактировать файлы напрямую на Pi** — при следующем `update_pi.sh` они будут перезаписаны из репо.
+## Открытые задачи
+
+- [ ] `drop_old_partitions` — не вызывается автоматически, нужен cron
+- [ ] PTRACKS 24h — увеличить с 8 до 24 в `/etc/default/tar1090` на Pi (одна строка)
+- [ ] ESLint для frontend JS — разовая настройка
+- [ ] Toast-уведомления в archive.html при ошибках (сейчас только в console.error)
+
+---
+
+## Закрытые баги
+
+- [x] enqueue() NULL lat/lon — проверка `lat/lon is None` в db.py (2026-03-31)
+- [x] adsb18-ingest параллельно с poller — замаскирован в /dev/null (2026-03-31)
+- [x] Frozen positions — MAX_SEEN_POS_SECS=60 в process_snapshot (2026-03-31)
+- [x] Ghost positions — _valid_position() + del _last_valid_pos (2026-03-31)
+- [x] Archive GROUP BY — GROUP BY icao только, MAX(callsign) (2026-03-31)
+- [x] CBJ666 checkbox самоснимается — recalcDistances в отдельном try-catch в addTrack (2026-04-06)
+- [x] clearDistanceLayers null labelMarker — добавлена проверка if(labelMarker) (2026-04-06)
+- [x] selectVisible race condition — guard !cb2.checked после await (2026-04-06)
+- [x] onDotIntervalChange — build new layer before removeLayer (2026-04-06)
+- [x] removeTrack updateTrackCount порядок — setItemActive до unregisterTrack (2026-04-06)
