@@ -163,30 +163,31 @@
 
         .pt-form {
             display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-            margin-bottom: 14px; background: #0f3460;
+            margin-bottom: 14px; background: #f0f4f8;
             padding: 12px; border-radius: 6px;
         }
         .pt-form .full { grid-column: 1 / -1; }
-        .pt-form label { font-size: 11px; color: #aaa; display: block; margin-bottom: 3px; }
+        .pt-form label { font-size: 11px; color: #555; display: block; margin-bottom: 3px; }
         .pt-form input {
-            width: 100%; background: #16213e; border: 1px solid #4fc3f7;
-            color: #e0e0e0; border-radius: 4px; padding: 5px 8px; font-size: 12px;
+            width: 100%; background: #fff; border: 1px solid #90b8d8;
+            color: #111; border-radius: 4px; padding: 5px 8px; font-size: 12px;
         }
         .pt-form-actions { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 4px; }
 
         .pt-table { width: 100%; border-collapse: collapse; font-size: 12px; }
         .pt-table th {
-            background: #0f3460; color: #4fc3f7; padding: 6px 8px;
-            text-align: left; font-weight: normal; position: sticky; top: 0;
+            background: #e8eef5; color: #1a4a7a; padding: 6px 8px;
+            text-align: left; font-weight: 600; position: sticky; top: 0;
+            border-bottom: 2px solid #b0c8e0;
         }
-        .pt-table td { padding: 6px 8px; border-bottom: 1px solid #1a1a3e; vertical-align: middle; }
-        .pt-table tr:hover td { background: #1a2a4e; }
+        .pt-table td { padding: 6px 8px; border-bottom: 1px solid #e0e8f0; vertical-align: middle; color: #222; }
+        .pt-table tr:hover td { background: #f0f6ff; }
         .pt-table .actions { white-space: nowrap; }
         .pt-table .show-cb { text-align: center; }
-        .pt-empty { color: #666; text-align: center; padding: 20px; }
+        .pt-empty { color: #888; text-align: center; padding: 20px; }
 
-        .btn-danger { background: transparent; border: 1px solid #ef5350; color: #ef5350; }
-        .btn-danger:hover { background: #1a0a0a; }
+        .btn-danger { background: transparent; border: 1px solid #e53935; color: #e53935; }
+        .btn-danger:hover { background: #fff0f0; }
 
         /* ── Distance toggle button ── */
         .dist-toggle-ctrl {
@@ -272,7 +273,7 @@
 
 <!-- Measurement points modal -->
 <div class="modal-overlay" id="pointsModal">
-  <div class="modal">
+  <div class="modal modal-light">
     <div class="modal-header">
       <h2>📍 Точки измерений</h2>
       <button class="modal-close" onclick="closePointsModal()">✕</button>
