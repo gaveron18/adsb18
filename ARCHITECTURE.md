@@ -589,7 +589,7 @@ Info-панель показывает:
 **API запросы:**
 ```
 1. GET /api/archive?from=ISO&to=ISO
-   → список рейсов: [{icao, callsign, first_seen, last_seen, max_altitude, max_speed, points}]
+   → список рейсов: [{icao, callsign, first_seen, last_seen, max_altitude, max_speed, points, type_code, description}]
 
 2. GET /api/history?icao=ABC&from=ISO&to=ISO&limit=10000
    → позиции одного рейса: [{lat, lon, altitude, ground_speed, ts, track}]
