@@ -687,13 +687,15 @@ function initDatePickers(restore = false) {
             return;
         }
     }
-    const nowUTC  = new Date().toISOString();
     const nowInTZ = new Date(Date.now() + tzOffsetMs);
     const startOfDayUTC = new Date(Date.UTC(
         nowInTZ.getUTCFullYear(), nowInTZ.getUTCMonth(), nowInTZ.getUTCDate()
     ) - tzOffsetMs).toISOString();
+    const endOfDayUTC = new Date(Date.UTC(
+        nowInTZ.getUTCFullYear(), nowInTZ.getUTCMonth(), nowInTZ.getUTCDate() + 1
+    ) - tzOffsetMs).toISOString();
     document.getElementById('fromDt').value = utcToInput(startOfDayUTC);
-    document.getElementById('toDt').value   = utcToInput(nowUTC);
+    document.getElementById('toDt').value   = utcToInput(endOfDayUTC);
 }
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
