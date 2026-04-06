@@ -269,6 +269,7 @@
     </div>
     <button class="btn-icon" title="Точки измерений" onclick="openPointsModal()">⚙</button>
     <button class="btn-icon" title="Лог приёмника" onclick="openReceiverLog()">📋</button>
+    <button class="btn-icon" title="Сбросить сессию" onclick="resetSession()">🔄</button>
 </div>
 
 <!-- Measurement points modal -->
@@ -700,6 +701,12 @@ function savePeriod() {
     const from = document.getElementById('fromDt').value;
     const to   = document.getElementById('toDt').value;
     if (from && to) localStorage.setItem('adsb18_period', JSON.stringify({ from, to }));
+}
+
+function resetSession() {
+    if (!confirm("Сбросить сессию? Период, треки и настройки карты будут очищены.")) return;
+    ["adsb18_period","adsb18_active_tracks","adsb18_map_view","adsb18_dot_interval","adsb18_distances"].forEach(k => localStorage.removeItem(k));
+    location.reload();
 }
 
 function loadPeriod() {
