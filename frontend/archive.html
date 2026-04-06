@@ -443,6 +443,7 @@ function nextColor() { return COLORS[colorIdx++ % COLORS.length]; }
 // activeTracks: icao → { layer, color, f, el }
 const activeTracks = new Map();
 let dotInterval = (function() { const v = parseInt(localStorage.getItem('adsb18_dot_interval')); return isNaN(v) ? 5 : v; })();
+let distancesEnabled = localStorage.getItem('adsb18_distances') === '1';
 
 // Bearing from point 1 to point 2, degrees 0-360
 function bearingDeg(lat1, lon1, lat2, lon2) {
@@ -1206,7 +1207,6 @@ document.getElementById('pointsModal').addEventListener('click', e => {
 
 // ── Distances calculation ─────────────────────────────────────────────────────
 
-let distancesEnabled = localStorage.getItem('adsb18_distances') === '1';
 let distanceLayers = []; // [{polyline, labelMarker}]
 let distanceData   = []; // raw results for export
 
