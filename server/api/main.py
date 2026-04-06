@@ -364,17 +364,20 @@ async def archive(
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT
-                icao,
-                MAX(callsign)     AS callsign,
-                MIN(ts)           AS first_seen,
-                MAX(ts)           AS last_seen,
-                COUNT(*)          AS points,
-                MAX(altitude)     AS max_altitude,
-                MAX(ground_speed) AS max_speed
-            FROM positions
-            WHERE ts BETWEEN $1 AND $2
-              AND lat IS NOT NULL
-            GROUP BY icao
+                p.icao,
+                MAX(p.callsign)     AS callsign,
+                MIN(p.ts)           AS first_seen,
+                MAX(p.ts)           AS last_seen,
+                COUNT(*)            AS points,
+                MAX(p.altitude)     AS max_altitude,
+                MAX(p.ground_speed) AS max_speed,
+                a.type_code,
+                a.description
+            FROM positions p
+            LEFT JOIN aircraft a ON a.icao = p.icao
+            WHERE p.ts BETWEEN $1 AND $2
+              AND p.lat IS NOT NULL
+            GROUP BY p.icao, a.type_code, a.description
             ORDER BY first_seen DESC
         """, t_from, t_to)
 
