@@ -212,16 +212,23 @@
 
 
         /* ── Receiver Log modal ── */
+        /* Receiver log — light modal */
+        .modal-light { background: #fff; border: 1px solid #ccc; color: #111; }
+        .modal-light .modal-header { background: #f0f4f8; }
+        .modal-light .modal-header h2 { color: #1a4a7a; }
+        .modal-light .modal-close { color: #555; }
+        .modal-light .modal-close:hover { color: #000; }
         .rl-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .rl-table th { background: #0d1b2a; color: #81d4fa; padding: 7px 10px;
-            text-align: left; font-weight: normal; position: sticky; top: 0; white-space: nowrap; }
-        .rl-table td { padding: 6px 10px; border-bottom: 1px solid #1a1a3e; white-space: nowrap; }
-        .rl-table tr:hover td { background: #1a2a4e; }
+        .rl-table th { background: #e8eef5; color: #1a4a7a; padding: 7px 10px;
+            text-align: left; font-weight: 600; position: sticky; top: 0; white-space: nowrap;
+            border-bottom: 2px solid #b0c8e0; }
+        .rl-table td { padding: 6px 10px; border-bottom: 1px solid #e0e8f0; white-space: nowrap; color: #222; }
+        .rl-table tr:hover td { background: #f0f6ff; }
         .rl-table .num { text-align: right; }
         .rl-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-        .rl-filters label { color: #aaa; font-size: 12px; }
-        .rl-filters input[type=date] { background: #0d1b2a; border: 1px solid #4fc3f7;
-            color: #e0e0e0; border-radius: 4px; padding: 4px 6px; font-size: 12px; }
+        .rl-filters label { color: #444; font-size: 12px; }
+        .rl-filters input[type=date] { background: #fff; border: 1px solid #90b8d8;
+            color: #111; border-radius: 4px; padding: 4px 6px; font-size: 12px; }
         .check-result {
             position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 2000;
             padding: 8px 18px; border-radius: 6px; font: bold 13px monospace;
@@ -319,7 +326,7 @@
 
 <!-- Receiver log modal -->
 <div class="modal-overlay" id="receiverLogModal">
-  <div class="modal" style="max-width:780px">
+  <div class="modal modal-light" style="max-width:780px">
     <div class="modal-header">
       <h2>📋 Лог работы приёмника</h2>
       <button class="modal-close" onclick="closeReceiverLog()">✕</button>
@@ -1371,7 +1378,7 @@ async function loadReceiverLog() {
         const r = await fetch(url);
         rlData = await r.json();
         renderRlTable();
-        status.textContent = rlData.length + ' сессий';
+        status.textContent = rlData.length + ' сессий'; status.style.color = '#666';
     } catch(e) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#ef5350;padding:20px">Ошибка загрузки</td></tr>';
     }
