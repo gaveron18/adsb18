@@ -760,51 +760,74 @@ async function deleteFlight(btn) {
     }
 }
 
+// ── Layer 1: Network ─────────────────────────────────────────────────────────
+// Pure data fetch — knows nothing about UI or map
+function fetchWithTimeout(url, ms) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
+async function fetchTrackPoints(f, ms = 10000) {
+    const url = `/api/history?icao=${f.icao}&from=${encodeURIComponent(f.first_seen)}&to=${encodeURIComponent(f.last_seen)}&limit=500`;
+    const pts = await fetchWithTimeout(url, ms).then(r => r.json());
+    return pts.filter(p => p.lat != null && p.lon != null);
+}
+
+// ── Layer 2: State ────────────────────────────────────────────────────────────
+// Manages activeTracks Map — no UI, no fetch
+function registerTrack(icao, layer, color, f, el, valid) {
+    activeTracks.set(icao, { layer, color, f, el, valid });
+    updateTrackCount();
+}
+
+function unregisterTrack(icao) {
+    const t = activeTracks.get(icao);
+    if (t) { map.removeLayer(t.layer); activeTracks.delete(icao); }
+    updateTrackCount();
+}
+
+// ── Layer 3: UI ───────────────────────────────────────────────────────────────
+// Manages checkbox and active class — no fetch, no map layers
+function setItemActive(el, active) {
+    const cb = el.querySelector('.fi-check');
+    if (cb) cb.checked = active;
+    el.classList.toggle('active', active);
+}
+
+function isItemChecked(el) {
+    const cb = el.querySelector('.fi-check');
+    return cb && cb.checked;
+}
+
+// ── Layer 4: Orchestrators ────────────────────────────────────────────────────
+// Calls layers 1-3 in sequence; all error handling lives here
+
 async function addTrack(f, el, color, skipFit = false) {
-    el.classList.add('active');
+    setItemActive(el, true);
     if (activeTracks.has(f.icao)) return;
-
     try {
-        const url = `/api/history?icao=${f.icao}&from=${encodeURIComponent(f.first_seen)}&to=${encodeURIComponent(f.last_seen)}&limit=500`;
-        const pts = await fetchWithTimeout(url, 10000).then(r => r.json());
-
-        // If clearAll() was called while we were waiting for the fetch,
-        // the checkbox was unchecked — abort to avoid re-adding stale tracks.
-        const cb = el.querySelector('.fi-check');
-        if (!cb || !cb.checked) return;
-
-        const valid = pts.filter(p => p.lat != null && p.lon != null);
-        if (!valid.length) { cb.checked = false; el.classList.remove('active'); return; }
-
+        const valid = await fetchTrackPoints(f, 10000);
+        // Abort if clearAll() ran while we were fetching
+        if (!isItemChecked(el)) return;
+        if (!valid.length) { setItemActive(el, false); return; }
         const layer = buildTrackLayer(valid, f, color).addTo(map);
-        activeTracks.set(f.icao, { layer, color, f, el, valid });
-        updateTrackCount();
+        registerTrack(f.icao, layer, color, f, el, valid);
         try { recalcDistances(); } catch(re) { console.error('recalcDistances error:', re); }
         if (!skipFit) { fitAll(); showInfo(f, color); }
     } catch(e) {
         console.error('addTrack error:', e);
-        const cb = el.querySelector('.fi-check');
-        if (cb) cb.checked = false;
-        el.classList.remove('active');
+        setItemActive(el, false);
         updateTrackCount();
     }
 }
 
 function removeTrack(icao, el) {
-    const t = activeTracks.get(icao);
-    if (t) { map.removeLayer(t.layer); activeTracks.delete(icao); }
-    if (el) { el.classList.remove('active'); el.querySelector('.fi-check').checked = false; }
+    unregisterTrack(icao);
+    if (el) setItemActive(el, false);
     if (activeTracks.size === 0) document.getElementById('infoPanel').style.display = 'none';
     else fitAll();
-    updateTrackCount();
     try { recalcDistances(); } catch(re) { console.error('recalcDistances error:', re); }
-}
-
-// -- Bulk select: load tracks one by one with timeout -------------------------
-function fetchWithTimeout(url, ms) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), ms);
-    return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
 }
 
 async function selectVisible() {
@@ -814,34 +837,27 @@ async function selectVisible() {
 
     const prog = document.getElementById('loadProgress');
     prog.style.display = '';
+    items.forEach(el => setItemActive(el, true));
 
-    // Check all checkboxes immediately (visual feedback)
-    items.forEach(el => { el.querySelector('.fi-check').checked = true; el.classList.add('active'); });
-
-    let loaded = 0, failed = 0, empty = 0;
+    let loaded = 0;
     for (const el of items) {
         const icao = el.dataset.icao;
         const f = allFlights.find(fl => fl.icao === icao) ||
             { icao, callsign: el.dataset.callsign, first_seen: el.dataset.first, last_seen: el.dataset.last };
         const color = el.dataset.color;
         try {
-            const url = `/api/history?icao=${f.icao}&from=${encodeURIComponent(f.first_seen)}&to=${encodeURIComponent(f.last_seen)}&limit=500`;
-            const pts = await fetchWithTimeout(url, 8000).then(r => r.json());
-            const valid = pts.filter(p => p.lat != null && p.lon != null);
-            if (!valid.length) { empty++; el.querySelector('.fi-check').checked = false; el.classList.remove('active'); updateTrackCount(); continue; }
+            const valid = await fetchTrackPoints(f, 8000);
+            if (!valid.length) { setItemActive(el, false); updateTrackCount(); continue; }
             // Guard: if clearAll() ran while we were fetching — abort
-            const cb2 = el.querySelector('.fi-check');
-            if (!cb2 || !cb2.checked) continue;
+            if (!isItemChecked(el)) continue;
             const layer = buildTrackLayer(valid, f, color).addTo(map);
-            activeTracks.set(icao, { layer, color, f, el, valid });
+            registerTrack(icao, layer, color, f, el, valid);
             loaded++;
         } catch(e) {
-            failed++;
-            el.querySelector('.fi-check').checked = false;
-            el.classList.remove('active');
+            setItemActive(el, false);
+            updateTrackCount();
         }
         prog.textContent = loaded + '/' + items.length;
-        updateTrackCount();
     }
 
     setTimeout(() => { prog.style.display = 'none'; }, 1500);
