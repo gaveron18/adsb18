@@ -87,6 +87,25 @@ async def _fetch_pi_live() -> dict[str, str]:
     return hexes
 
 
+async def _check_pi_alive() -> bool:
+    """Return True if Pi tunnel is reachable and aircraft.json timestamp is fresh (<30s)."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            'curl', '-s', '--max-time', '5', PI_AIRCRAFT_URL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        data = json.loads(stdout.decode())
+        pi_now = data.get('now')
+        if pi_now is None:
+            return False
+        age = time.time() - float(pi_now)
+        return age < 30
+    except Exception:
+        return False
+
+
 async def monitor_task():
     """Background task: compare Pi chunks vs server every MONITOR_INTERVAL seconds."""
     global _monitor_status
@@ -535,12 +554,11 @@ async def receiver_log(
         )
 
 
-        last_pos_ts = await conn.fetchval("SELECT max(ts) FROM positions")
-        pi_active = last_pos_ts is not None and (now - last_pos_ts) < timedelta(minutes=5)
+        pi_active = await _check_pi_alive()
 
         result = []
         for i, (start, end) in enumerate(sessions):
-            is_active = pi_active and (i == len(sessions) - 1) and (now - end) < timedelta(minutes=10)
+            is_active = pi_active and (i == len(sessions) - 1)
             actual_end = now if is_active else end
             routes = await conn.fetchval("""
                 SELECT COUNT(DISTINCT icao)
