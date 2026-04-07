@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>adsb18 — Архив полётов</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script>if(!sessionStorage.getItem('adsb18_archive_auth'))document.documentElement.classList.add('ap-locked');</script>
+    <style>
+        html.ap-locked body > *:not(#archivePasswordOverlay) { visibility: hidden; }
+        html.ap-locked #archivePasswordOverlay { display: flex; }
+    </style>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -1509,7 +1514,6 @@ document.getElementById('receiverLogModal').addEventListener('click', function(e
     background: #1a1a2e; z-index: 99999;
     align-items: center; justify-content: center;
 }
-#archivePasswordOverlay.show { display: flex; }
 #archivePasswordOverlay .ap-box {
     background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
     padding: 28px 32px; min-width: 280px; text-align: center;
@@ -1542,14 +1546,13 @@ document.getElementById('receiverLogModal').addEventListener('click', function(e
 (function() {
     var SESSION_KEY = 'adsb18_archive_auth';
     if (!sessionStorage.getItem(SESSION_KEY)) {
-        document.getElementById('archivePasswordOverlay').classList.add('show');
         setTimeout(function() { document.getElementById('apInput').focus(); }, 50);
     }
     window.checkArchivePassword = function() {
         var val = document.getElementById('apInput').value;
         if (val === '0000') {
             sessionStorage.setItem(SESSION_KEY, '1');
-            document.getElementById('archivePasswordOverlay').classList.remove('show');
+            document.documentElement.classList.remove('ap-locked');
         } else {
             document.getElementById('apError').textContent = 'Неверный пароль';
             document.getElementById('apInput').value = '';
