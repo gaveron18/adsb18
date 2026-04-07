@@ -778,9 +778,14 @@ async def set_pi_location(req: _LocationReq):
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+    # Read back actual coordinates from Pi (readsb-set-location may round them)
+    actual = await get_pi_location()
+    actual_lat = actual['lat'] if actual['available'] else req.lat
+    actual_lon = actual['lon'] if actual['available'] else req.lon
+
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE feeders SET lat=$1, lon=$2 WHERE name='ads-b-pi'",
-            req.lat, req.lon
+            actual_lat, actual_lon
         )
     return {'ok': True}

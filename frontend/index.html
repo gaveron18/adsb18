@@ -1266,12 +1266,26 @@
         .then(function(r) { return r.json(); })
         .then(function(d) {
           if (d.ok) {
-            document.getElementById('lmStatus').className = 'lm-status ok';
-            document.getElementById('lmStatus').textContent = '✓ Координаты установлены: ' + lat + ', ' + lon;
-            document.getElementById('lmCurrent').textContent = 'Текущие координаты: ' + lat + ', ' + lon;
-            btn.textContent = 'Обновить страницу';
-            btn.disabled = false;
-            btn.onclick = function() { location.reload(); };
+            document.getElementById('lmStatus').className = 'lm-status';
+            document.getElementById('lmStatus').textContent = 'Проверка координат на Pi…';
+            return fetch('/api/pi-location')
+              .then(function(r) { return r.json(); })
+              .then(function(v) {
+                if (!v.available) {
+                  document.getElementById('lmStatus').className = 'lm-status err';
+                  document.getElementById('lmStatus').textContent = 'Команда выполнена, но Pi не отвечает при проверке';
+                  btn.disabled = false;
+                  return;
+                }
+                var actual = v.lat.toFixed(6) + ', ' + v.lon.toFixed(6);
+                document.getElementById('lmCurrent').textContent = 'Текущие координаты: ' + actual;
+                document.getElementById('lmInput').value = actual;
+                document.getElementById('lmStatus').className = 'lm-status ok';
+                document.getElementById('lmStatus').textContent = '✓ Установлено на Pi: ' + actual;
+                btn.textContent = 'Обновить страницу';
+                btn.disabled = false;
+                btn.onclick = function() { location.reload(); };
+              });
           } else {
             document.getElementById('lmStatus').className = 'lm-status err';
             document.getElementById('lmStatus').textContent = 'Ошибка: ' + (d.detail || 'неизвестная ошибка');
