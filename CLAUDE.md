@@ -51,7 +51,6 @@ ADS-B сервер сбора и визуализации данных о воз
 | adsb18-api | 9001 | FastAPI |
 | nginx | 8098 | отдаёт frontend + проксирует /api/ и /data/ |
 | adsb18-ingest | 30001 | **MASKED → /dev/null** — не запускать! |
-| adsb18-feeder (Pi) | — | disabled — не нужен при poller-архитектуре |
 
 Перезапуск после изменений:
 ```bash
@@ -97,7 +96,6 @@ server/
   db/
     init.sql      — схема БД: positions (партиц.), aircraft, feeders
 feeder/
-  feeder.py       — SBS-режим (НЕ используется при poller-архитектуре)
   update_pi.sh    — деплой изменений на Pi
 frontend/
   archive.html    — страница архива рейсов (Leaflet)

@@ -737,3 +737,26 @@ Pi считается активным если туннель отвечает,
 
 **Правило:**
 Новая таблица → CREATE TABLE IF NOT EXISTS в init.sql в том же коммите что и API эндпоинт.
+
+---
+
+## Сессия 2026-04-07 (4)
+
+### ИЗМЕНЕНИЕ: удалён adsb18-feeder (SBS-режим)
+
+**Причина:**
+adsb18-feeder.service на Pi подключался на порт 30091 → через -L туннель → VPS:30001 (adsb18-ingest).
+adsb18-ingest замаскирован с 31 марта (переход на poller-архитектуру).
+Фидер работал вхолостую — 44 МБ буфер, данные никуда не шли.
+
+**Что удалено:**
+- Pi: adsb18-feeder.service (stop + disable + rm)
+- Pi: /opt/adsb18-feeder/ (feeder.py + feeder_buffer.sbs 44 МБ)
+- Pi: строка -L 30091:localhost:30001 из adsb-tunnel.service
+- Репо: feeder/feeder.py, feeder_json.py, requirements.txt, simulator.py
+- Репо: feeder/update_pi.sh — переписан, теперь синхронизирует только adsb-tunnel.service
+
+**Реальный поток данных (poller-архитектура):**
+Pi aircraft.json → HTTP туннель :30092 → VPS adsb18-poller → DB
+
+**Откат:** см. docs/session_2026-04-07.md раздел Как откатить
