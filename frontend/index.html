@@ -1214,7 +1214,10 @@
       document.getElementById('locationModal').classList.add('open');
       document.getElementById('lmStatus').textContent = '';
       document.getElementById('lmStatus').className = 'lm-status';
-      document.getElementById('lmSetBtn').disabled = true;
+      var btn = document.getElementById('lmSetBtn');
+      btn.disabled = true;
+      btn.textContent = 'Установить координаты';
+      btn.onclick = setReceiverLocation;
       document.getElementById('lmCurrent').textContent = 'Проверка связи с Pi…';
       document.getElementById('lmInput').value = '';
       fetch('/api/pi-location')
