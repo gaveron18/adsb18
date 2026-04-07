@@ -1227,7 +1227,6 @@
             return;
           }
           document.getElementById('lmCurrent').textContent = 'Текущие координаты: ' + d.lat + ', ' + d.lon;
-          document.getElementById('lmInput').value = d.lat + ', ' + d.lon;
           document.getElementById('lmSetBtn').disabled = false;
         })
         .catch(function() {
