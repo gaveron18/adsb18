@@ -99,6 +99,8 @@ ExecStart=$VENV_DIR/bin/uvicorn main:app --host 127.0.0.1 --port $API_PORT
 Restart=on-failure
 RestartSec=5
 Environment=DATABASE_URL=$DB_URL
+Environment=PI_AIRCRAFT_URL=http://127.0.0.1:$PI_TUNNEL_PORT/tar1090/data/aircraft.json
+Environment=PI_SSH_PORT=52223
 StandardOutput=journal
 StandardError=journal
 

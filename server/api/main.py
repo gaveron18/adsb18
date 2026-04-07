@@ -28,8 +28,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 
 DB_DSN = os.getenv('DATABASE_URL', 'postgresql://adsb:adsb@postgres:5432/adsb18')
 
+_pi_ssh_port = os.getenv('PI_SSH_PORT', '52222')
 PI_SSH_CMD = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=5',
-              '-p', '52222', 'ads-b@127.0.0.1']
+              '-p', _pi_ssh_port, 'ads-b@127.0.0.1']
 
 MONITOR_INTERVAL = 30   # seconds between checks
 MONITOR_SERVER_WINDOW = 120  # server window: aircraft seen in last N seconds
