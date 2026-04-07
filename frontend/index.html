@@ -35,6 +35,47 @@
     #monitor-badge .mb-dot.wait { color: #aaa; }
     #monitor-badge .mb-detail { margin-top: 3px; font-size: 11px; color: #bbb; }
     #monitor-badge.collapsed .mb-detail { display: none; }
+    .locationButton {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z'/%3E%3C/svg%3E");
+      background-size: 80%;
+      background-repeat: no-repeat;
+      background-position: center;
+    }
+    #locationModal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6); z-index: 9100;
+      align-items: center; justify-content: center;
+    }
+    #locationModal.open { display: flex; }
+    #locationModal .lm-box {
+      background: #222; border: 1px solid #444; border-radius: 6px;
+      padding: 20px 24px; min-width: 320px; color: #eee;
+      font-size: 13px;
+    }
+    #locationModal .lm-title {
+      font-size: 15px; color: #4fc3f7; margin-bottom: 14px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    #locationModal .lm-title button {
+      background: none; border: none; color: #aaa; font-size: 20px; cursor: pointer;
+    }
+    #locationModal .lm-title button:hover { color: #fff; }
+    #locationModal .lm-current { color: #aaa; margin-bottom: 10px; font-size: 12px; }
+    #locationModal .lm-input {
+      width: 100%; box-sizing: border-box; background: #333; border: 1px solid #555;
+      color: #eee; padding: 7px 10px; border-radius: 4px; font-size: 13px;
+      font-family: monospace; margin-bottom: 10px;
+    }
+    #locationModal .lm-input:focus { outline: none; border-color: #4fc3f7; }
+    #locationModal .lm-status { min-height: 18px; font-size: 12px; margin-bottom: 10px; }
+    #locationModal .lm-status.ok  { color: #4caf50; }
+    #locationModal .lm-status.err { color: #f44336; }
+    #locationModal .lm-btn {
+      background: #1976d2; color: #fff; border: none; border-radius: 4px;
+      padding: 8px 20px; cursor: pointer; font-size: 13px; width: 100%;
+    }
+    #locationModal .lm-btn:disabled { background: #555; color: #999; cursor: not-allowed; }
+    #locationModal .lm-btn:not(:disabled):hover { background: #1565c0; }
   </style>
   </head>
 
@@ -816,6 +857,7 @@
             </div>
             <div id="fullscreenButton" class="svgButton fullscreenButton"></div>
             <div id="settingsCog" class="svgButton settingsCog"></div>
+            <div id="locationBtn" class="svgButton locationButton" title="Координаты приёмника" onclick="openLocationModal()"></div>
             <div id="L" title="Toggle (L)abels" class="button inActiveButton" onclick="toggleLabels();"><span class="buttonText">L</span></div>
             <div id="O" title="Toggle Label Extensi(O)ns" class="button inActiveButton" onclick="toggleExtendedLabels();"><span class="buttonText">O</span></div>
             <div id="K" title="Toggle Trac(K) Labels" class="button inActiveButton" onclick="toggleTrackLabels();"><span class="buttonText">K</span></div>
@@ -1154,5 +1196,98 @@
     <span id="mb-title"> Pi→Server: ожидание...</span>
     <div class="mb-detail" id="mb-detail"></div>
   </div>
+  <div id="locationModal">
+    <div class="lm-box">
+      <div class="lm-title">
+        <span>📍 Координаты приёмника</span>
+        <button onclick="closeLocationModal()">✕</button>
+      </div>
+      <div class="lm-current" id="lmCurrent">Загрузка…</div>
+      <input type="text" class="lm-input" id="lmInput" placeholder="55.12345, 49.23456">
+      <div class="lm-status" id="lmStatus"></div>
+      <button class="lm-btn" id="lmSetBtn" disabled onclick="setReceiverLocation()">Установить координаты</button>
+    </div>
+  </div>
+  <script>
+  (function() {
+    function openLocationModal() {
+      document.getElementById('locationModal').classList.add('open');
+      document.getElementById('lmStatus').textContent = '';
+      document.getElementById('lmStatus').className = 'lm-status';
+      document.getElementById('lmSetBtn').disabled = true;
+      document.getElementById('lmCurrent').textContent = 'Проверка связи с Pi…';
+      document.getElementById('lmInput').value = '';
+      fetch('/api/pi-location')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (!d.available) {
+            document.getElementById('lmCurrent').textContent = 'Pi недоступен';
+            document.getElementById('lmStatus').className = 'lm-status err';
+            document.getElementById('lmStatus').textContent = 'Установка координат невозможна — Pi не подключён';
+            return;
+          }
+          document.getElementById('lmCurrent').textContent = 'Текущие координаты: ' + d.lat + ', ' + d.lon;
+          document.getElementById('lmInput').value = d.lat + ', ' + d.lon;
+          document.getElementById('lmSetBtn').disabled = false;
+        })
+        .catch(function() {
+          document.getElementById('lmCurrent').textContent = 'Ошибка подключения';
+          document.getElementById('lmStatus').className = 'lm-status err';
+          document.getElementById('lmStatus').textContent = 'Не удалось получить данные с сервера';
+        });
+    }
+    function closeLocationModal() {
+      document.getElementById('locationModal').classList.remove('open');
+    }
+    function setReceiverLocation() {
+      var val = document.getElementById('lmInput').value.trim();
+      var parts = val.split(',');
+      if (parts.length !== 2) {
+        document.getElementById('lmStatus').className = 'lm-status err';
+        document.getElementById('lmStatus').textContent = 'Формат: 55.12345, 49.23456';
+        return;
+      }
+      var lat = parseFloat(parts[0].trim());
+      var lon = parseFloat(parts[1].trim());
+      if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        document.getElementById('lmStatus').className = 'lm-status err';
+        document.getElementById('lmStatus').textContent = 'Некорректные координаты';
+        return;
+      }
+      var btn = document.getElementById('lmSetBtn');
+      btn.disabled = true;
+      document.getElementById('lmStatus').className = 'lm-status';
+      document.getElementById('lmStatus').textContent = 'Отправка команды на Pi…';
+      fetch('/api/pi-location', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({lat: lat, lon: lon})
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.ok) {
+            document.getElementById('lmStatus').className = 'lm-status ok';
+            document.getElementById('lmStatus').textContent = '✓ Координаты установлены: ' + lat + ', ' + lon;
+            document.getElementById('lmCurrent').textContent = 'Текущие координаты: ' + lat + ', ' + lon;
+          } else {
+            document.getElementById('lmStatus').className = 'lm-status err';
+            document.getElementById('lmStatus').textContent = 'Ошибка: ' + (d.detail || 'неизвестная ошибка');
+          }
+          btn.disabled = false;
+        })
+        .catch(function() {
+          document.getElementById('lmStatus').className = 'lm-status err';
+          document.getElementById('lmStatus').textContent = 'Ошибка сети';
+          btn.disabled = false;
+        });
+    }
+    document.getElementById('locationModal').addEventListener('click', function(e) {
+      if (e.target === this) closeLocationModal();
+    });
+    window.openLocationModal = openLocationModal;
+    window.closeLocationModal = closeLocationModal;
+    window.setReceiverLocation = setReceiverLocation;
+  })();
+  </script>
   </body>
 </html>

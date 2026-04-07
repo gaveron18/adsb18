@@ -720,3 +720,60 @@ async def ws_broadcaster():
                 ws_clients.remove(ws)
         except Exception as e:
             log.error(f'WS broadcast error: {e}')
+
+
+# ── Receiver location ─────────────────────────────────────────────────────────
+
+@app.get('/api/pi-location')
+async def get_pi_location():
+    """Get current receiver coordinates from Pi's /etc/default/readsb."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *PI_SSH_CMD,
+            "python3 -c \"import re; c=open('/etc/default/readsb').read(); lat=re.search(r'--lat ([^ ]+)', c); lon=re.search(r'--lon ([^ ]+)', c); print(lat.group(1) if lat else '', lon.group(1) if lon else '')\"",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        parts = stdout.decode().strip().split()
+        if len(parts) == 2:
+            return {'available': True, 'lat': float(parts[0]), 'lon': float(parts[1])}
+        return {'available': False, 'lat': None, 'lon': None}
+    except Exception:
+        return {'available': False, 'lat': None, 'lon': None}
+
+
+class _LocationReq(BaseModel):
+    lat: float
+    lon: float
+
+
+@app.post('/api/pi-location')
+async def set_pi_location(req: _LocationReq):
+    """Set receiver coordinates on Pi via readsb-set-location, update feeders table."""
+    from fastapi import HTTPException
+    if not (-90 <= req.lat <= 90) or not (-180 <= req.lon <= 180):
+        raise HTTPException(status_code=400, detail='Invalid coordinates')
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *PI_SSH_CMD,
+            f'sudo readsb-set-location {req.lat} {req.lon}',
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        if proc.returncode != 0:
+            raise HTTPException(status_code=500, detail=stderr.decode().strip())
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail='Pi timeout')
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE feeders SET lat=$1, lon=$2 WHERE name='ads-b-pi'",
+            req.lat, req.lon
+        )
+    return {'ok': True}
