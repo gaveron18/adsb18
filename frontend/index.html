@@ -1280,13 +1280,9 @@
                   return;
                 }
                 var actual = v.lat.toFixed(6) + ', ' + v.lon.toFixed(6);
-                document.getElementById('lmCurrent').textContent = 'Текущие координаты: ' + actual;
-                document.getElementById('lmInput').value = actual;
                 document.getElementById('lmStatus').className = 'lm-status ok';
-                document.getElementById('lmStatus').textContent = '✓ Установлено на Pi: ' + actual;
-                btn.textContent = 'Обновить страницу';
-                btn.disabled = false;
-                btn.onclick = function() { location.reload(); };
+                document.getElementById('lmStatus').textContent = '✓ Установлено на Pi: ' + actual + '. Обновление страницы…';
+                setTimeout(function() { location.reload(); }, 1500);
               });
           } else {
             document.getElementById('lmStatus').className = 'lm-status err';
