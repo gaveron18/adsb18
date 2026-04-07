@@ -1501,5 +1501,61 @@ document.getElementById('receiverLogModal').addEventListener('click', function(e
     if (e.target === document.getElementById('receiverLogModal')) closeReceiverLog();
 });
 </script>
+
+<!-- Password overlay -->
+<style>
+#archivePasswordOverlay {
+    display: none; position: fixed; inset: 0;
+    background: #1a1a2e; z-index: 99999;
+    align-items: center; justify-content: center;
+}
+#archivePasswordOverlay.show { display: flex; }
+#archivePasswordOverlay .ap-box {
+    background: #16213e; border: 1px solid #0f3460; border-radius: 8px;
+    padding: 28px 32px; min-width: 280px; text-align: center;
+}
+#archivePasswordOverlay h2 { color: #4fc3f7; font-size: 15px; margin-bottom: 18px; }
+#archivePasswordOverlay input {
+    width: 100%; box-sizing: border-box;
+    background: #0f3460; border: 1px solid #4fc3f7; color: #e0e0e0;
+    padding: 8px 12px; border-radius: 4px; font-size: 14px;
+    text-align: center; letter-spacing: 4px; margin-bottom: 10px;
+}
+#archivePasswordOverlay input:focus { outline: none; border-color: #81d4fa; }
+#archivePasswordOverlay .ap-error { color: #f44336; font-size: 12px; min-height: 18px; margin-bottom: 10px; }
+#archivePasswordOverlay button {
+    background: #1976d2; color: #fff; border: none; border-radius: 4px;
+    padding: 8px 24px; cursor: pointer; font-size: 14px; width: 100%;
+}
+#archivePasswordOverlay button:hover { background: #1565c0; }
+</style>
+<div id="archivePasswordOverlay">
+    <div class="ap-box">
+        <h2>🔒 Архив полётов</h2>
+        <input type="password" id="apInput" placeholder="Пароль" maxlength="20"
+               onkeydown="if(event.key==='Enter')checkArchivePassword()">
+        <div class="ap-error" id="apError"></div>
+        <button onclick="checkArchivePassword()">Войти</button>
+    </div>
+</div>
+<script>
+(function() {
+    var SESSION_KEY = 'adsb18_archive_auth';
+    if (!sessionStorage.getItem(SESSION_KEY)) {
+        document.getElementById('archivePasswordOverlay').classList.add('show');
+        setTimeout(function() { document.getElementById('apInput').focus(); }, 50);
+    }
+    window.checkArchivePassword = function() {
+        var val = document.getElementById('apInput').value;
+        if (val === '0000') {
+            sessionStorage.setItem(SESSION_KEY, '1');
+            document.getElementById('archivePasswordOverlay').classList.remove('show');
+        } else {
+            document.getElementById('apError').textContent = 'Неверный пароль';
+            document.getElementById('apInput').value = '';
+        }
+    };
+})();
+</script>
 </body>
 </html>
