@@ -739,7 +739,8 @@ async def get_pi_location():
         if len(parts) == 2:
             return {'available': True, 'lat': float(parts[0]), 'lon': float(parts[1])}
         return {'available': False, 'lat': None, 'lon': None}
-    except Exception:
+    except Exception as e:
+        log.warning(f'get_pi_location error: {e}')
         return {'available': False, 'lat': None, 'lon': None}
 
 
