@@ -1,7 +1,7 @@
 #!/bin/bash
 # adsb18 — Deploy script
 # Полная установка с нуля на свежий Ubuntu/Debian сервер.
-# Запуск: bash deploy.sh
+# Запуск: sudo bash deploy.sh
 # После запуска: выполни вручную шаги из раздела "ПОСЛЕ ДЕПЛОЯ"
 
 set -e  # остановиться при любой ошибке
@@ -9,20 +9,18 @@ set -e  # остановиться при любой ошибке
 # ─────────────────────────────────────────────────────────────────────────────
 # Конфиг — поменяй под свой сервер
 # ─────────────────────────────────────────────────────────────────────────────
-DEPLOY_USER="${SUDO_USER:-$USER}"          # пользователь от которого запущен скрипт
 REPO_URL="https://github.com/gaveron18/adsb18.git"
-APP_DIR="/home/$DEPLOY_USER/adsb18"        # папка с репозиторием
-VENV_DIR="/opt/adsb18-venv"               # virtualenv
+APP_DIR="/opt/adsb18"                     # папка с репозиторием
+VENV_DIR="/opt/adsb18-venv"              # virtualenv
 DB_NAME="adsb18"
 DB_USER="adsb"
 DB_PASS="adsb2024"
 DB_URL="postgresql://$DB_USER:$DB_PASS@localhost:5432/$DB_NAME"
 WEB_PORT="8098"
 API_PORT="9001"
-INGEST_PORT="30001"
+PI_TUNNEL_PORT="30093"                   # порт SSH-туннеля Pi→VPS (aircraft.json)
 
 echo "=== adsb18 deploy ==="
-echo "User:    $DEPLOY_USER"
 echo "App dir: $APP_DIR"
 echo ""
 
@@ -31,11 +29,11 @@ echo ""
 # ─────────────────────────────────────────────────────────────────────────────
 echo "[0/8] Cloning repository..."
 if [[ ! -d "$APP_DIR/.git" ]]; then
-    sudo -u "$DEPLOY_USER" git clone "$REPO_URL" "$APP_DIR"
+    git clone "$REPO_URL" "$APP_DIR"
     echo "    Cloned into $APP_DIR"
 else
     echo "    Already exists, pulling latest..."
-    sudo -u "$DEPLOY_USER" git -C "$APP_DIR" pull
+    git -C "$APP_DIR" pull
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -84,37 +82,9 @@ SQL
 echo "    PostgreSQL ready."
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Права на домашнюю директорию (иначе nginx не сможет читать фронтенд)
-# ─────────────────────────────────────────────────────────────────────────────
-echo "[4/8] Fixing home directory permissions for nginx..."
-chmod o+x "/home/$DEPLOY_USER"
-
-# ─────────────────────────────────────────────────────────────────────────────
 # 5. systemd сервисы
 # ─────────────────────────────────────────────────────────────────────────────
 echo "[5/8] Installing systemd services..."
-
-cat > /etc/systemd/system/adsb18-ingest.service <<EOF
-[Unit]
-Description=adsb18 Ingest Server
-After=network.target postgresql.service
-Requires=postgresql.service
-
-[Service]
-User=$DEPLOY_USER
-WorkingDirectory=$APP_DIR/server/ingest
-ExecStart=$VENV_DIR/bin/python main.py
-Restart=on-failure
-RestartSec=5
-Environment=DATABASE_URL=$DB_URL
-Environment=INGEST_HOST=0.0.0.0
-Environment=INGEST_PORT=$INGEST_PORT
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
 
 cat > /etc/systemd/system/adsb18-api.service <<EOF
 [Unit]
@@ -123,7 +93,7 @@ After=network.target postgresql.service
 Requires=postgresql.service
 
 [Service]
-User=$DEPLOY_USER
+User=root
 WorkingDirectory=$APP_DIR/server/api
 ExecStart=$VENV_DIR/bin/uvicorn main:app --host 127.0.0.1 --port $API_PORT
 Restart=on-failure
@@ -136,46 +106,45 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
+cat > /etc/systemd/system/adsb18-poller.service <<EOF
+[Unit]
+Description=adsb18 Poller (aircraft.json -> PostgreSQL)
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+User=root
+WorkingDirectory=$APP_DIR/server/ingest
+ExecStart=$VENV_DIR/bin/python poller.py
+Restart=on-failure
+RestartSec=5
+Environment=DATABASE_URL=$DB_URL
+Environment=PI_AIRCRAFT_URL=http://127.0.0.1:$PI_TUNNEL_PORT/tar1090/data/aircraft.json
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 systemctl daemon-reload
-systemctl enable adsb18-ingest adsb18-api
-systemctl restart adsb18-ingest adsb18-api
+systemctl enable adsb18-api adsb18-poller
+systemctl restart adsb18-api adsb18-poller
 echo "    Services started."
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. nginx
+# 6. nginx — используем nginx.conf из репо, заменяем пути и порт туннеля
 # ─────────────────────────────────────────────────────────────────────────────
 echo "[6/8] Configuring nginx..."
 
-cat > /etc/nginx/sites-available/adsb18 <<EOF
-server {
-    listen $WEB_PORT;
-
-    location / {
-        root $APP_DIR/frontend;
-        index index.html;
-        try_files \$uri \$uri/ /index.html;
-    }
-
-    location /data/ {
-        proxy_pass http://127.0.0.1:$API_PORT/data/;
-        proxy_cache_bypass 1;
-        add_header Cache-Control "no-cache";
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:$API_PORT/api/;
-    }
-
-    location /ws {
-        proxy_pass http://127.0.0.1:$API_PORT/ws;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-EOF
+# Заменяем пути /home/new/adsb18 -> /opt/adsb18 и порт туннеля 30092 -> 30093
+sed \
+    -e "s|/home/new/adsb18|$APP_DIR|g" \
+    -e "s|:30092|:$PI_TUNNEL_PORT|g" \
+    "$APP_DIR/nginx.conf" > /etc/nginx/sites-available/adsb18
 
 ln -sf /etc/nginx/sites-available/adsb18 /etc/nginx/sites-enabled/adsb18
+rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl enable --now nginx
 systemctl reload nginx
@@ -186,11 +155,10 @@ echo "    nginx ready."
 # ─────────────────────────────────────────────────────────────────────────────
 echo "[7/8] Configuring UFW firewall..."
 ufw --force enable
-ufw allow 22/tcp    comment 'SSH'
-ufw allow "$WEB_PORT/tcp"    comment 'adsb18 web interface'
-ufw allow "$INGEST_PORT/tcp" comment 'adsb18 ingest'
+ufw allow 22/tcp  comment 'SSH'
+ufw allow "$WEB_PORT/tcp" comment 'adsb18 web interface'
 ufw reload
-echo "    UFW ready. Open ports: 22, $WEB_PORT, $INGEST_PORT"
+echo "    UFW ready. Open ports: 22, $WEB_PORT"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. Проверка
@@ -198,17 +166,17 @@ echo "    UFW ready. Open ports: 22, $WEB_PORT, $INGEST_PORT"
 echo "[8/8] Checking services..."
 sleep 3
 
-STATUS_INGEST=$(systemctl is-active adsb18-ingest)
+STATUS_POLLER=$(systemctl is-active adsb18-poller)
 STATUS_API=$(systemctl is-active adsb18-api)
 STATUS_NGINX=$(systemctl is-active nginx)
 STATUS_PG=$(systemctl is-active postgresql)
 
 echo ""
 echo "=== Status ==="
-echo "  postgresql:     $STATUS_PG"
-echo "  adsb18-ingest:  $STATUS_INGEST"
-echo "  adsb18-api:     $STATUS_API"
-echo "  nginx:          $STATUS_NGINX"
+echo "  postgresql:      $STATUS_PG"
+echo "  adsb18-poller:   $STATUS_POLLER"
+echo "  adsb18-api:      $STATUS_API"
+echo "  nginx:           $STATUS_NGINX"
 
 SERVER_IP=$(hostname -I | awk '{print $1}')
 echo ""
@@ -216,32 +184,28 @@ echo "=== Done ==="
 echo "  Web: http://$SERVER_IP:$WEB_PORT"
 echo "  API: http://$SERVER_IP:$WEB_PORT/api/docs"
 echo ""
-echo "=== ПОСЛЕ ДЕПЛОЯ — настрой Raspberry Pi ==="
+echo "=== ПОСЛЕ ДЕПЛОЯ — подключи Raspberry Pi ==="
 echo ""
-echo "  Запусти установку фидера на Pi. На Pi выполни:"
+echo "  Pi должен иметь SSH-туннель на этот сервер."
+echo "  Туннель пробрасывает aircraft.json Pi -> порт $PI_TUNNEL_PORT на VPS."
 echo ""
-echo "  scp -r $DEPLOY_USER@$(hostname -I | awk '{print $1}'):$APP_DIR/feeder /tmp/adsb18-feeder"
-echo "  sudo bash /tmp/adsb18-feeder/install.sh --vps-ip $(hostname -I | awk '{print $1}') --vps-user $DEPLOY_USER --name имя-пи"
+echo "  1. Добавь публичный ключ Pi на этот сервер:"
+echo "     ssh -p 52222 ads-b@127.0.0.1 'cat /home/ads-b/.ssh/id_adsb_vps.pub'"
+echo "     echo 'ПУБЛИЧНЫЙ_КЛЮЧ' >> /root/.ssh/authorized_keys"
 echo ""
-echo "  Скрипт сам установит всё и создаст SSH-ключ."
-echo "  После этого добавь публичный ключ Pi на этот сервер:"
-echo "    cat /home/ads-b/.ssh/id_adsb_vps.pub  # выполнить на Pi"
-echo "    echo 'КЛЮЧ' >> ~/.ssh/authorized_keys  # выполнить на этом сервере"
+echo "  2. На Pi создай сервис туннеля на этот VPS:"
+echo "     Файл: /etc/systemd/system/adsb-tunnel-prod.service"
+echo "     ExecStart: autossh ... -R 0.0.0.0:$PI_TUNNEL_PORT:localhost:80 root@$SERVER_IP"
+echo "     sudo systemctl enable --now adsb-tunnel-prod"
+echo ""
+echo "  3. Проверь туннель:"
+echo "     curl -s http://127.0.0.1:$PI_TUNNEL_PORT/tar1090/data/aircraft.json | head -c 200"
 echo ""
 echo "=== ПЕРЕПОДКЛЮЧЕНИЕ Pi НА ДРУГОЙ СЕРВЕР ==="
 echo ""
-echo "  Если меняешь IP сервера (переезд на новый VPS):"
+echo "  1. Добавь публичный ключ Pi на новый сервер (см. п.1 выше)"
 echo ""
-echo "  1. Добавь публичный ключ Pi на новый сервер:"
-echo "     # Посмотри ключ Pi:"
-echo "     ssh -p 52222 ads-b@127.0.0.1 'cat /home/ads-b/.ssh/id_adsb_vps.pub'"
-echo "     # Добавь его на новом сервере:"
-echo "     echo 'ПУБЛИЧНЫЙ_КЛЮЧ' >> ~/.ssh/authorized_keys"
-echo ""
-echo "  2. Поменяй IP в tunnel-сервисе на Pi:"
+echo "  2. На Pi поменяй IP в сервисе туннеля:"
 echo "     ssh -p 52222 ads-b@127.0.0.1"
-echo "     sudo nano /etc/systemd/system/adsb-tunnel.service"
-echo "     # Поменять: new@СТАРЫЙ_IP → new@НОВЫЙ_IP"
-echo "     sudo systemctl daemon-reload && sudo systemctl restart adsb-tunnel"
-echo ""
-echo "  3. Фидер переподключится автоматически (After=adsb-tunnel.service)"
+echo "     sudo nano /etc/systemd/system/adsb-tunnel-prod.service"
+echo "     sudo systemctl daemon-reload && sudo systemctl restart adsb-tunnel-prod"
