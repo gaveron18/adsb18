@@ -1202,16 +1202,38 @@
         <span>📍 Координаты приёмника</span>
         <button onclick="closeLocationModal()">✕</button>
       </div>
-      <div class="lm-current" id="lmCurrent">Загрузка…</div>
-      <input type="text" class="lm-input" id="lmInput" placeholder="55.12345, 49.23456">
-      <div class="lm-status" id="lmStatus"></div>
-      <button class="lm-btn" id="lmSetBtn" disabled onclick="setReceiverLocation()">Установить координаты</button>
+      <div id="lmPasswordScreen">
+        <div class="lm-current">Введите пароль для доступа</div>
+        <input type="password" class="lm-input" id="lmPasswordInput" placeholder="Пароль" onkeydown="if(event.key==='Enter')checkLocationPassword()">
+        <div class="lm-status err" id="lmPasswordError" style="min-height:18px"></div>
+        <button class="lm-btn" onclick="checkLocationPassword()">Войти</button>
+      </div>
+      <div id="lmMainScreen" style="display:none">
+        <div class="lm-current" id="lmCurrent">Загрузка…</div>
+        <input type="text" class="lm-input" id="lmInput" placeholder="55.12345, 49.23456">
+        <div class="lm-status" id="lmStatus"></div>
+        <button class="lm-btn" id="lmSetBtn" disabled onclick="setReceiverLocation()">Установить координаты</button>
+      </div>
     </div>
   </div>
   <script>
   (function() {
-    function openLocationModal() {
-      document.getElementById('locationModal').classList.add('open');
+    var _lmUnlocked = false;
+
+    function checkLocationPassword() {
+      var val = document.getElementById('lmPasswordInput').value;
+      if (val === '123') {
+        _lmUnlocked = true;
+        document.getElementById('lmPasswordScreen').style.display = 'none';
+        document.getElementById('lmMainScreen').style.display = 'block';
+        loadLocationData();
+      } else {
+        document.getElementById('lmPasswordError').textContent = 'Неверный пароль';
+        document.getElementById('lmPasswordInput').value = '';
+      }
+    }
+
+    function loadLocationData() {
       document.getElementById('lmStatus').textContent = '';
       document.getElementById('lmStatus').className = 'lm-status';
       var btn = document.getElementById('lmSetBtn');
@@ -1238,6 +1260,22 @@
           document.getElementById('lmStatus').textContent = 'Не удалось получить данные с сервера';
         });
     }
+
+    function openLocationModal() {
+      document.getElementById('locationModal').classList.add('open');
+      if (_lmUnlocked) {
+        document.getElementById('lmPasswordScreen').style.display = 'none';
+        document.getElementById('lmMainScreen').style.display = 'block';
+        loadLocationData();
+      } else {
+        document.getElementById('lmPasswordScreen').style.display = 'block';
+        document.getElementById('lmMainScreen').style.display = 'none';
+        document.getElementById('lmPasswordError').textContent = '';
+        document.getElementById('lmPasswordInput').value = '';
+        setTimeout(function() { document.getElementById('lmPasswordInput').focus(); }, 50);
+      }
+    }
+
     function closeLocationModal() {
       document.getElementById('locationModal').classList.remove('open');
     }
@@ -1306,6 +1344,7 @@
     window.openLocationModal = openLocationModal;
     window.closeLocationModal = closeLocationModal;
     window.setReceiverLocation = setReceiverLocation;
+    window.checkLocationPassword = checkLocationPassword;
   })();
   </script>
   </body>
