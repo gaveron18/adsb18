@@ -1269,11 +1269,14 @@
             document.getElementById('lmStatus').className = 'lm-status ok';
             document.getElementById('lmStatus').textContent = '✓ Координаты установлены: ' + lat + ', ' + lon;
             document.getElementById('lmCurrent').textContent = 'Текущие координаты: ' + lat + ', ' + lon;
+            btn.textContent = 'Обновить страницу';
+            btn.disabled = false;
+            btn.onclick = function() { location.reload(); };
           } else {
             document.getElementById('lmStatus').className = 'lm-status err';
             document.getElementById('lmStatus').textContent = 'Ошибка: ' + (d.detail || 'неизвестная ошибка');
+            btn.disabled = false;
           }
-          btn.disabled = false;
         })
         .catch(function() {
           document.getElementById('lmStatus').className = 'lm-status err';

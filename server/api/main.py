@@ -170,12 +170,18 @@ async def shutdown():
 
 @app.get('/data/receiver.json')
 async def receiver_json():
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT lat, lon FROM feeders ORDER BY last_connected DESC NULLS LAST LIMIT 1"
+        )
+    lat = float(row['lat']) if row and row['lat'] is not None else 56.8373
+    lon = float(row['lon']) if row and row['lon'] is not None else 53.2492
     return JSONResponse({
         "version":    "adsb18",
         "refresh":    1000,
         "history":    0,
-        "lat":        56.8373,
-        "lon":        53.2492,
+        "lat":        lat,
+        "lon":        lon,
         "haveTraces": True,
         "zstd":       False,
         "binCraft":   False,
