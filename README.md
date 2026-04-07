@@ -1,194 +1,157 @@
 # adsb18 — ADS-B сервер сбора и визуализации данных о воздушных судах
 
-Система принимает сигналы ADS-B от одного или нескольких приёмников (Raspberry Pi + RTL-SDR),
-хранит данные в PostgreSQL до 6 месяцев и отображает воздушную обстановку на интерактивной карте.
-
-**Веб-интерфейс:** http://173.249.2.184:8098 *(тестовый сервер)*
-
----
-
-## Возможности
-
-- Приём данных от **нескольких приёмников** одновременно
-- Хранение **до 6 месяцев** истории полётов
-- Интерактивная карта в стиле **tar1090** (OpenLayers, треки, таблица бортов)
-- **REST API** для запроса истории треков по ICAO и периоду
-- **WebSocket** для обновления карты в реальном времени
-- Автоматическое партиционирование БД по месяцам
-- **Disk buffer на Pi** — при обрыве связи данные пишутся на диск (до 200 МБ), после восстановления автоматически досылаются на сервер
-- Деплой одной командой через **deploy.sh** (systemd, без Docker)
+Система принимает сигналы ADS-B от Raspberry Pi с RTL-SDR приёмником,
+хранит данные в PostgreSQL и отображает воздушную обстановку на интерактивной карте.
 
 ---
 
 ## Архитектура
 
 ```
-[RTL-SDR] → [dump1090 на Raspberry Pi] → [feeder.py]
-                                               │
-                                    TCP :30001 │ (Pi инициирует соединение)
-                                               ▼
-                                    ┌─────────────────┐
-                                    │  ingest сервер  │  парсит SBS-поток
-                                    └────────┬────────┘
-                                             │
-                                             ▼
-                                    ┌─────────────────┐
-                                    │   PostgreSQL    │  партиции по месяцам
-                                    └────────┬────────┘
-                                             │
-                                    ┌────────▼────────┐
-                                    │   FastAPI       │  aircraft.json + REST + WS
-                                    └────────┬────────┘
-                                             │
-                                    ┌────────▼────────┐
-                                    │  nginx + карта  │  порт 8098
-                                    └─────────────────┘
+[RTL-SDR] → [readsb на Pi] → aircraft.json (:80)
+                                    │
+                         SSH reverse tunnel (-R 30092:localhost:80)
+                                    │
+                             VPS :30092 (HTTP туннель)
+                                    │ curl каждую секунду
+                             [adsb18-poller]
+                                    │
+                             [PostgreSQL 16]
+                                    │
+                             [FastAPI :9001]
+                                    │
+                             [nginx :8098]
 ```
+
+Pi инициирует SSH-туннель на VPS. VPS сам забирает `aircraft.json` через этот туннель — поллер-архитектура без сложного протокола.
 
 ---
 
-## Стек технологий
+## Деплой VPS
 
-| Компонент | Технология |
-|-----------|-----------|
-| Фронтенд | [tar1090](https://github.com/wiedehopf/tar1090) (OpenLayers, jQuery) |
-| API | Python 3.12, FastAPI, WebSocket |
-| Ingest | Python 3.12, asyncio (TCP сервер) |
-| База данных | PostgreSQL 16, партиционирование по месяцам |
-| Веб-сервер | nginx |
-| Деплой | systemd (deploy.sh) |
-| Feeder (Pi) | Python 3.12, stdlib (без зависимостей) |
-
----
-
-## Структура проекта
-
-```
-adsb18/
-├── deploy.sh                # деплой VPS с нуля (systemd)
-├── docker-compose.yml       # только для справки, НЕ использовать на проде
-├── nginx.conf               # раздача фронтенда + проксирование API
-├── .env.example             # шаблон переменных окружения
-│
-├── frontend/                # веб-интерфейс (tar1090, OpenLayers)
-│
-├── feeder/
-│   ├── feeder.py            # скрипт для Raspberry Pi
-│   ├── feeder_json.py       # альтернативный фидер (JSON формат)
-│   ├── install.sh           # установка Pi с нуля (systemd)
-│   ├── update_pi.sh         # обновление feeder.py на Pi
-│   ├── adsb-tunnel.service  # шаблон сервиса SSH-туннеля
-│   ├── adsb18-feeder.service # шаблон сервиса фидера
-│   ├── simulator.py         # симулятор ADS-B данных для тестов
-│   └── requirements.txt
-│
-└── server/
-    ├── db/
-    │   ├── init.sql          # схема БД (positions, aircraft, feeders)
-    │   └── cron_partitions.sql  # ежемесячное обслуживание партиций
-    ├── ingest/
-    │   ├── main.py           # TCP сервер, приём от фидеров
-    │   ├── sbs_parser.py     # парсер SBS (BaseStation) формата
-    │   └── db.py             # батчевая запись в PostgreSQL
-    └── api/
-        └── main.py           # FastAPI: aircraft.json, история, WS
-```
-
----
-
-## Деплой
-
-### 1. Новый VPS (Ubuntu/Debian)
+### Новый VPS (Ubuntu/Debian, от root)
 
 ```bash
-# Клонировать репозиторий и запустить deploy.sh от root
-git clone https://github.com/gaveron18/adsb18.git
-cd adsb18
+git clone https://github.com/gaveron18/adsb18.git /opt/adsb18
+cd /opt/adsb18
 sudo bash deploy.sh
 ```
 
-Скрипт автоматически:
-- установит PostgreSQL, nginx, Python virtualenv
-- создаст БД и схему
-- установит и запустит сервисы через systemd (`adsb18-ingest`, `adsb18-api`)
-- настроит nginx и UFW
+Скрипт устанавливает:
+- PostgreSQL 16, создаёт БД и схему
+- Python venv + зависимости
+- systemd сервисы: `adsb18-poller`, `adsb18-api`
+- nginx на порту 8098
+- UFW: открывает порт 8098
 
-Открыть карту: **http://&lt;IP&gt;:8098**
+После запуска скрипт напечатает инструкцию — нужно вручную добавить SSH-ключ Pi в `~/.ssh/authorized_keys`.
 
-### 2. Raspberry Pi (feeder)
+Карта: **http://&lt;IP&gt;:8098**
 
-Требования: `dump1090` или `readsb` запущен на Pi (порт 30003).
-
-```bash
-# Скопировать папку feeder с VPS на Pi
-scp -r user@<IP_VPS>:~/adsb18/feeder /tmp/adsb18-feeder
-
-# Установить на Pi
-sudo bash /tmp/adsb18-feeder/install.sh \
-  --vps-ip <IP_VPS> \
-  --vps-user <user> \
-  --name имя-пи
-```
-
-Скрипт создаст пользователя `ads-b`, сгенерирует SSH-ключ и установит сервисы.
-После установки добавить публичный ключ Pi на VPS:
+### Обновление VPS
 
 ```bash
-# На Pi:
-cat /home/ads-b/.ssh/id_adsb_vps.pub
-
-# На VPS:
-echo 'ПУБЛИЧНЫЙ_КЛЮЧ' >> ~/.ssh/authorized_keys
-```
-
-Feeder автоматически запускается при старте Pi, соединяется через SSH-туннель и переподключается при обрыве.
-При потере соединения данные буферизуются на диске (`/opt/adsb18-feeder/feeder_buffer.sbs`, до 200 МБ)
-и автоматически досылаются на сервер после восстановления — без пропусков в истории.
-
-### 3. Обновление feeder.py на Pi
-
-```bash
-# С VPS:
-bash ~/adsb18/feeder/update_pi.sh
+cd /opt/adsb18
+git pull
+sudo systemctl restart adsb18-poller
+sudo systemctl restart adsb18-api
 ```
 
 ---
 
-## Страница архива (`/archive.html`)
+## Деплой Pi
 
-Страница для просмотра истории полётов за выбранный период.
+### Требования
+- Raspberry Pi с RTL-SDR антенной
+- `readsb` установлен и работает
+- `tar1090` отдаёт `aircraft.json` на `localhost:80/tar1090/data/aircraft.json`
 
-### Список рейсов
+Установка readsb: https://github.com/wiedehopf/readsb  
+Установка tar1090: https://github.com/wiedehopf/tar1090
 
-- Каждый рейс отображается с **позывным** (крупно) и **ICAO-кодом** (мелко справа)
-- Время начала и конца трека с указанием часового пояса
-- Поиск по позывному или ICAO через строку поиска
+### Установка туннеля (один раз)
 
-### Выбор треков
+**Шаг 1** — скопировать скрипты с VPS на Pi:
 
-| Действие | Результат |
-|----------|-----------|
-| Клик на строку рейса | Снять все треки, показать только этот |
-| Клик на чекбокс (☐) | Добавить / убрать из выбора, не затрагивая остальные |
-| Кнопка **Все** | Выбрать все рейсы в списке |
-| Кнопка **Снять** | Убрать все треки с карты |
+```bash
+# С VPS (туннель ещё не работает — копируем через обычный SSH):
+scp feeder/install.sh feeder/adsb-tunnel.service pi@<IP_PI>:/tmp/
+```
 
-Каждый трек отображается своим цветом (до 15 одновременно).
+**Шаг 2** — запустить на Pi:
 
-### Часовые пояса
+```bash
+sudo bash /tmp/install.sh --vps-ip <IP_VPS> --vps-user <USER>
+```
 
-Выпадающий список позволяет переключить отображение времени:
-- UTC
-- Ижевск (UTC+4)
-- Пермь (UTC+5)
-- Пользовательский (задаётся вручную, сохраняется в браузере)
+Скрипт:
+- установит `autossh`
+- создаст пользователя `ads-b`
+- сгенерирует SSH-ключ
+- установит и запустит `adsb-tunnel.service`
 
-При смене часового пояса все времена в списке и инпуты диапазона пересчитываются автоматически.
+**Шаг 3** — добавить ключ Pi на VPS:
 
-### Удаление рейса
+```bash
+# Скрипт напечатает публичный ключ. На VPS выполнить:
+echo 'ПУБЛИЧНЫЙ_КЛЮЧ' >> ~/.ssh/authorized_keys
+```
 
-Кнопка 🗑 справа от каждого рейса удаляет все позиции из БД за период этого рейса.
-Если у борта не остаётся других записей — удаляется и из таблицы `aircraft`.
+**Шаг 4** — проверить что туннель работает:
+
+```bash
+# На VPS:
+curl -s http://127.0.0.1:30092/tar1090/data/aircraft.json | head -c 100
+```
+
+### Для второго VPS (prod)
+
+```bash
+sudo bash /tmp/install.sh \
+  --vps-ip <IP_PROD> \
+  --vps-user root \
+  --http-port 30093 \
+  --ssh-port 52223 \
+  --service-name adsb-tunnel-prod
+```
+
+### Обновление туннеля на Pi
+
+Если изменился `feeder/adsb-tunnel.service` в репо:
+
+```bash
+# С VPS:
+bash feeder/update_pi.sh
+```
+
+Скрипт покажет diff и применит изменения.
+
+---
+
+## Сервисы
+
+| Сервис | Где | Порт | Описание |
+|--------|-----|------|----------|
+| adsb18-poller | VPS | — | Опрашивает Pi каждую секунду, пишет в БД |
+| adsb18-api | VPS | 9001 | FastAPI — REST API + WebSocket |
+| nginx | VPS | 8098 | Отдаёт фронтенд + проксирует /api/ и /data/ |
+| PostgreSQL 16 | VPS | 5432 | База данных |
+| adsb-tunnel | Pi | — | SSH reverse tunnel → VPS :30092 (HTTP) + :52222 (SSH) |
+
+---
+
+## Логи и статус
+
+```bash
+# VPS:
+sudo systemctl status adsb18-poller adsb18-api
+sudo journalctl -u adsb18-poller -f
+sudo journalctl -u adsb18-api -f
+
+# Pi:
+sudo systemctl status adsb-tunnel readsb
+sudo journalctl -u adsb-tunnel -f
+```
 
 ---
 
@@ -196,44 +159,36 @@ bash ~/adsb18/feeder/update_pi.sh
 
 | Метод | Endpoint | Описание |
 |-------|----------|----------|
-| GET | `/data/aircraft.json` | Текущие борты (формат tar1090) |
-| GET | `/api/aircraft?hours=24` | Все борты за последние N часов |
-| GET | `/api/history?icao=3C6444&from=...&to=...` | Трек одного борта |
-| GET | `/api/feeders` | Список подключённых приёмников |
-| WS  | `/ws` | Реалтайм обновления (aircraft.json каждую секунду) |
-| GET | `/api/docs` | Swagger документация |
+| GET | `/data/aircraft.json` | Текущие борты (прокси Pi или fallback из БД) |
+| GET | `/api/history?icao=&from=&to=` | Трек борта за период |
+| GET | `/api/archive?from=&to=` | Список рейсов за период |
+| GET | `/api/feeders` | Список приёмников |
+| GET | `/api/monitor` | Сравнение Pi live vs БД |
+| DELETE | `/api/flight?icao=&from=&to=` | Удалить рейс из архива |
+| WS | `/ws` | aircraft.json каждую секунду |
 
 ---
 
-## Порты
-
-| Порт | Назначение |
-|------|-----------|
-| `8098` | Веб-интерфейс (карта) |
-| `30001` | Приём данных от Raspberry Pi |
-
----
-
-## Протокол подключения фидера
-
-Фидер подключается к серверу по TCP и в первой строке отправляет имя:
+## Структура проекта
 
 ```
-AUTH perm-pi1\n
+adsb18/
+├── deploy.sh                # деплой VPS с нуля
+├── nginx.conf               # конфиг nginx
+├── feeder/
+│   ├── install.sh           # установка туннеля на Pi (один раз)
+│   ├── update_pi.sh         # обновление туннеля на Pi
+│   └── adsb-tunnel.service  # шаблон systemd сервиса туннеля
+├── frontend/
+│   ├── index.html           # живая карта (OpenLayers / tar1090)
+│   └── archive.html         # архив рейсов (Leaflet)
+└── server/
+    ├── db/init.sql          # схема БД (positions, aircraft, feeders)
+    ├── ingest/
+    │   ├── poller.py        # опрашивает Pi aircraft.json, пишет в БД
+    │   └── db.py            # буфер + PostgreSQL writer
+    └── api/main.py          # FastAPI
 ```
-
-Далее — непрерывный поток SBS-сообщений от dump1090. Сервер принимает
-несколько фидеров одновременно и отмечает от какого именно приёмника
-пришла каждая позиция.
-
----
-
-## Хранение данных
-
-- Таблица `positions` партиционирована по месяцам
-- Партиции старше 6 месяцев удаляются автоматически
-- Таблица `aircraft` хранит актуальное состояние каждого борта
-- Таблица `feeders` фиксирует все подключённые приёмники
 
 ---
 
