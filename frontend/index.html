@@ -1205,7 +1205,7 @@
       <div id="lmPasswordScreen">
         <div class="lm-current">Введите пароль для доступа</div>
         <input type="password" class="lm-input" id="lmPasswordInput" placeholder="Пароль" onkeydown="if(event.key==='Enter')checkLocationPassword()">
-        <div class="lm-status err" id="lmPasswordError" style="min-height:18px"></div>
+        <div class="lm-status" id="lmPasswordError"></div>
         <button class="lm-btn" onclick="checkLocationPassword()">Войти</button>
       </div>
       <div id="lmMainScreen" style="display:none">
@@ -1228,6 +1228,7 @@
         document.getElementById('lmMainScreen').style.display = 'block';
         loadLocationData();
       } else {
+        document.getElementById('lmPasswordError').className = 'lm-status err';
         document.getElementById('lmPasswordError').textContent = 'Неверный пароль';
         document.getElementById('lmPasswordInput').value = '';
       }
