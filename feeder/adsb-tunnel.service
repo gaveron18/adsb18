@@ -1,5 +1,5 @@
 [Unit]
-Description=Reverse SSH tunnel to VPS
+Description=Reverse SSH tunnel to VPS (HTTP + SSH)
 After=network-online.target
 Wants=network-online.target
 
@@ -11,9 +11,8 @@ ExecStart=/usr/bin/autossh -M 0 -N \
   -o StrictHostKeyChecking=no \
   -o ExitOnForwardFailure=yes \
   -i /home/ads-b/.ssh/id_adsb_vps \
-  -R 52222:localhost:22 \
-  -R 30092:localhost:80 \
-  -L 30091:localhost:30001 \
+  -R 0.0.0.0:HTTP_PORT:localhost:80 \
+  -R 0.0.0.0:SSH_PORT:localhost:22 \
   VPS_USER@VPS_IP
 Restart=always
 RestartSec=10
