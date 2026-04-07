@@ -1297,8 +1297,12 @@
           btn.disabled = false;
         });
     }
+    var _lmDownOnOverlay = false;
+    document.getElementById('locationModal').addEventListener('mousedown', function(e) {
+      _lmDownOnOverlay = (e.target === this);
+    });
     document.getElementById('locationModal').addEventListener('click', function(e) {
-      if (e.target === this) closeLocationModal();
+      if (_lmDownOnOverlay && e.target === this) closeLocationModal();
     });
     window.openLocationModal = openLocationModal;
     window.closeLocationModal = closeLocationModal;
