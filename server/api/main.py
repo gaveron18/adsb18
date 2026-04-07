@@ -534,19 +534,26 @@ async def receiver_log(
             "SELECT name FROM feeders ORDER BY last_connected DESC NULLS LAST LIMIT 1"
         )
 
+
+        last_pos_ts = await conn.fetchval("SELECT max(ts) FROM positions")
+        pi_active = last_pos_ts is not None and (now - last_pos_ts) < timedelta(minutes=5)
+
         result = []
-        for start, end in sessions:
+        for i, (start, end) in enumerate(sessions):
+            is_active = pi_active and (i == len(sessions) - 1) and (now - end) < timedelta(minutes=10)
+            actual_end = now if is_active else end
             routes = await conn.fetchval("""
                 SELECT COUNT(DISTINCT icao)
                 FROM positions
                 WHERE ts >= $1 AND ts < $2
-            """, start, end)
+            """, start, actual_end)
             result.append({
                 'feeder':    feeder_name or 'ads-b-pi',
                 'date':      start.astimezone(timezone.utc).strftime('%Y-%m-%d'),
                 'start_utc': start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
-                'end_utc':   end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                'end_utc':   actual_end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
                 'routes':    routes,
+                'is_active': is_active,
             })
 
     return result

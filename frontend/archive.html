@@ -228,6 +228,9 @@
             border-bottom: 2px solid #b0c8e0; }
         .rl-table td { padding: 6px 10px; border-bottom: 1px solid #e0e8f0; white-space: nowrap; color: #222; }
         .rl-table tr:hover td { background: #f0f6ff; }
+        .rl-active td { background: #e8f8ee !important; color: #1a7a3a !important; font-weight: 500; }
+        .rl-active:hover td { background: #d4f0de !important; }
+        .rl-active-badge { display: inline-block; background: #4CAF50; color: #fff; border-radius: 3px; padding: 1px 5px; font-size: 10px; font-weight: bold; margin-left: 4px; vertical-align: middle; }
         .rl-table .num { text-align: right; }
         .rl-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
         .rl-filters label { color: #444; font-size: 12px; }
@@ -1398,12 +1401,13 @@ function openReceiverLog() {
     if (archiveTo) {
         rlTo.value = archiveTo.slice(0, 10);
     }
+    const todayStr = new Date().toISOString().slice(0, 10);
     if (!rlFrom.value) {
-        const today = new Date();
-        rlTo.value   = today.toISOString().slice(0, 10);
-        const ago30  = new Date(today); ago30.setDate(ago30.getDate() - 30);
+        const ago30 = new Date(); ago30.setDate(ago30.getDate() - 30);
         rlFrom.value = ago30.toISOString().slice(0, 10);
     }
+    // Always include today so active session is visible
+    if (!rlTo.value || rlTo.value < todayStr) rlTo.value = todayStr;
     loadReceiverLog();
 }
 
@@ -1455,11 +1459,15 @@ function renderRlTable() {
             ? Math.floor(dur / 60) + 'ч ' + String(dur % 60).padStart(2, '0') + 'м'
             : dur + ' мин';
         const dateLocal = new Date(s.getTime() + tzOffsetMs).toISOString().slice(0, 10);
-        return '<tr>' +
-            '<td>' + escHtml(d.feeder) + '</td>' +
+        const isActive = !!d.is_active;
+        const rowClass = isActive ? ' class="rl-active"' : '';
+        const feederCell = escHtml(d.feeder) + (isActive ? '<span class="rl-active-badge">● работает</span>' : '');
+        const endCell = isActive ? '<span style="color:#1a7a3a;font-weight:bold">сейчас ►</span>' : fmtT(e);
+        return '<tr' + rowClass + '>' +
+            '<td>' + feederCell + '</td>' +
             '<td>' + dateLocal + '</td>' +
             '<td>' + fmtT(s) + '</td>' +
-            '<td>' + fmtT(e) + '</td>' +
+            '<td>' + endCell + '</td>' +
             '<td>' + durStr + '</td>' +
             '<td class="num">' + d.routes  + '</td>' +
             '</tr>';
