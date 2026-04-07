@@ -136,3 +136,14 @@ BEGIN
     END LOOP;
 END;
 $$;
+
+-- Точки измерений (measurement_points) — произвольные точки на карте
+CREATE TABLE IF NOT EXISTS measurement_points (
+    id        SERIAL PRIMARY KEY,
+    name      TEXT NOT NULL,
+    address   TEXT,
+    lat       DOUBLE PRECISION NOT NULL,
+    lon       DOUBLE PRECISION NOT NULL,
+    date_from DATE,
+    date_to   DATE
+);
