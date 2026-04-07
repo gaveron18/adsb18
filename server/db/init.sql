@@ -62,8 +62,8 @@ CREATE INDEX IF NOT EXISTS idx_aircraft_last_seen ON aircraft (last_seen DESC);
 CREATE TABLE IF NOT EXISTS feeders (
     id              SERIAL          PRIMARY KEY,
     name            VARCHAR(64)     NOT NULL UNIQUE,  -- e.g. 'perm-pi5'
-    lat             REAL,                       -- receiver location
-    lon             REAL,
+    lat             DOUBLE PRECISION,           -- receiver location
+    lon             DOUBLE PRECISION,
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     last_connected  TIMESTAMPTZ,
     msg_count       BIGINT          DEFAULT 0
@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS measurement_points (
     address   TEXT,
     lat       DOUBLE PRECISION NOT NULL,
     lon       DOUBLE PRECISION NOT NULL,
-    date_from DATE,
-    date_to   DATE
+    date_from  DATE,
+    date_to    DATE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
