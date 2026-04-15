@@ -720,43 +720,26 @@ Pi считается активным если туннель отвечает,
 
 ---
 
-## Сессия 2026-04-07 (3)
+## Сессия 2026-04-15
 
-### ПРОБЛЕМА: measurement_points не создалась при деплое на prod
+### ПРОБЛЕМА: туннель Pi→prod падает — "remote port forwarding failed for listen port 30093"
 
 **Симптомы:**
-/api/points → 500 Internal Server Error на prod.
-Фронтенд показывает «Ошибка загрузки точек».
+- Страница периодически не показывает движение самолётов
+- `journalctl -u adsb-tunnel-prod` на Pi: `Error: remote port forwarding failed for listen port 30093`
+- autossh за 2 часа делал 18 перезапусков
+- Между неудачными попытками — пауза 3-5 минут
 
 **Причина:**
-Таблица measurement_points была создана вручную на dev VPS в прошлой сессии.
-В server/db/init.sql не добавили. На prod init.sql применился без этой таблицы.
+`ClientAliveInterval 0` (отключён по умолчанию) в `/etc/ssh/sshd_config` на prod.
+Когда SSH соединение рвётся, sshd на prod НЕ обнаруживает мёртвое соединение
+и удерживает порт 30093 бесконечно.
+При reconnect autossh получает "port already in use" → следующая попытка через ~3 мин.
 
 **Решение:**
-Создали таблицу на prod вручную + добавили в init.sql (коммит 979098c).
-
-**Правило:**
-Новая таблица → CREATE TABLE IF NOT EXISTS в init.sql в том же коммите что и API эндпоинт.
-
----
-
-## Сессия 2026-04-07 (4)
-
-### ИЗМЕНЕНИЕ: удалён adsb18-feeder (SBS-режим)
-
-**Причина:**
-adsb18-feeder.service на Pi подключался на порт 30091 → через -L туннель → VPS:30001 (adsb18-ingest).
-adsb18-ingest замаскирован с 31 марта (переход на poller-архитектуру).
-Фидер работал вхолостую — 44 МБ буфер, данные никуда не шли.
-
-**Что удалено:**
-- Pi: adsb18-feeder.service (stop + disable + rm)
-- Pi: /opt/adsb18-feeder/ (feeder.py + feeder_buffer.sbs 44 МБ)
-- Pi: строка -L 30091:localhost:30001 из adsb-tunnel.service
-- Репо: feeder/feeder.py, feeder_json.py, requirements.txt, simulator.py
-- Репо: feeder/update_pi.sh — переписан, теперь синхронизирует только adsb-tunnel.service
-
-**Реальный поток данных (poller-архитектура):**
-Pi aircraft.json → HTTP туннель :30092 → VPS adsb18-poller → DB
-
-**Откат:** см. docs/session_2026-04-07.md раздел Как откатить
+В `/etc/ssh/sshd_config` на prod (185.221.160.175):
+```
+ClientAliveInterval 15
+ClientAliveCountMax 3
+```
+`systemctl reload ssh` — мёртвые соединения обнаруживаются за 45 сек, порт освобождается быстро.
