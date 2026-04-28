@@ -250,6 +250,14 @@ git push
 - [ ] PTRACKS 24h — увеличить с 8 до 24 в `/etc/default/tar1090` на Pi (одна строка)
 - [ ] ESLint для frontend JS — разовая настройка
 - [ ] Toast-уведомления в archive.html при ошибках (сейчас только в console.error)
+- [ ] **Установить RF-аттенюатор VEGATEL AT-10 (R00527, 10 dB SMA M-F)** между антенной и RTL-SDR на Pi. Заказан 2026-04-28. План установки: `docs/session_2026-04-28.md` → раздел "План на следующую сессию". После установки вернуть `--gain auto`.
+
+## Текущие настройки приёмника на Pi
+
+- `/etc/default/readsb`: `RECEIVER_OPTIONS="--device 0 --device-type rtlsdr --gain 12.5 --ppm 0"` (с 2026-04-28)
+- gain зафиксирован вручную из-за overload близких бортов — auto-подбор давал ~22.9, что вызывало clipping АЦП
+- После установки аттенюатора AT-10 gain нужно вернуть в `auto`
+- Управление gain: `sudo readsb-gain <значение>` (hot-reload через `/run/readsb/setGain`, без рестарта). **НЕ запускать `readsb-gain --help`** — скрипт без валидации, подставит `--help` в конфиг → gain=0. См. TROUBLESHOOTING.md.
 
 ---
 
