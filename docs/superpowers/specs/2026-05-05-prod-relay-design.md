@@ -145,10 +145,15 @@ WantedBy=multi-user.target
 ### 4.2 Строка для `authorized_keys` на prod
 
 ```
-restrict,permitopen="127.0.0.1:30093",permitopen="127.0.0.1:52223" ssh-ed25519 AAAA…<pubkey>… relay@dev
+restrict,command="false",permitopen="127.0.0.1:30093",permitopen="127.0.0.1:52223" ssh-ed25519 AAAA…<pubkey>… relay@dev
 ```
 
-`restrict` блокирует всё (no-pty, no-agent, no-X11, no-port-forwarding…). Два `permitopen` выборочно разрешают ровно нужные форварды. Всё остальное — недоступно атакующему даже при компрометации ключа.
+Что делает каждая часть:
+- `restrict` — блокирует pty, agent forwarding, X11, **port forwarding (по умолчанию)**, user-rc. По man sshd для OpenSSH 9.x НЕ блокирует exec команд — это нужно отдельно.
+- `command="false"` — переопределяет ЛЮБУЮ команду, которую клиент запросит, на `/usr/bin/false` (exit 1, ничего не выводит). Это закрывает дыру `restrict`-а: атакующий с украденным ключом не сможет `ssh ... 'cat /root/.ssh/authorized_keys'`.
+- Два `permitopen` — выборочно ВКЛЮЧАЮТ ровно нужные TCP-форварды поверх `restrict`. autossh использует `-N -L`, который не запрашивает exec — поэтому `command="false"` не мешает.
+
+Если ключ компрометируется, атакующий получит ровно: возможность пробросить TCP-туннель на `prod:127.0.0.1:30093` и `prod:127.0.0.1:52223`. Никаких файлов, БД, шелла, других портов.
 
 ### 4.3 Diff `adsb18-poller.service` на dev
 
@@ -349,7 +354,7 @@ git revert <relay-doc commit>
 | # | Риск | Митигация |
 |---|------|-----------|
 | 1 | ТСПУ начнёт резать SSH с РФ-ЦОД к зарубежным IP — план рассыпается | Verification на этапе деплоя (см. 7.1 пункты 1–2: relay `is-active` и listener'ы открыты). Если случится в эксплуатации — отдельный design (обфускация через VLESS-Reality на `buddy123`, либо перенос dev в РФ) |
-| 2 | Компрометация ключа `id_relay_dev_to_prod` | Через `restrict + permitopen` атакующий получит только два конкретных TCP-форварда на `prod:localhost`, без шелла, без БД, без других портов |
+| 2 | Компрометация ключа `id_relay_dev_to_prod` | Через `restrict + command="false" + permitopen` атакующий получит только два конкретных TCP-форварда на `prod:localhost`. Никакого exec-канала (`cat`/`psql`/`sudo`/etc.), никакого шелла, никаких других портов. Подробности: spec раздел 4.2. |
 | 3 | Кто-то случайно `enable` обратно `adsb-tunnel.service` на Pi → конфликт по `dev:30092` | `ExitOnForwardFailure=yes` + явный `bind: Address already in use` в журнале — диагностика быстрая |
 | 4 | Pi выпадет из связи с prod на длительное время | prod и dev поллеры одновременно перестают писать (Pi — общий источник) — симметрично, никаких новых багов |
 
