@@ -39,9 +39,9 @@ Run on dev:
 ```bash
 mkdir -p /tmp/relay_baseline
 sudo systemctl status adsb18-api adsb18-poller adsb18-nginx postgresql --no-pager > /tmp/relay_baseline/dev_services_before.txt 2>&1
-ss -ltnp 2>/dev/null > /tmp/relay_baseline/dev_listeners_before.txt
+sudo ss -ltnp 2>/dev/null > /tmp/relay_baseline/dev_listeners_before.txt
 ```
-Expected: оба файла созданы, размер > 0.
+Expected: оба файла созданы, размер > 0. Без `sudo` `ss -p` не покажет owner-процессы для чужих пользователей.
 
 - [ ] **Step 1.2: Записать baseline на prod**
 
@@ -72,7 +72,7 @@ Expected: видны все три сервиса как `active`.
 ```bash
 ls -la /tmp/relay_baseline/
 ```
-Expected: 3 файла, каждый ненулевого размера.
+Expected: 4 файла (`dev_services_before.txt`, `dev_listeners_before.txt`, `prod_state_before.txt`, `pi_state_before.txt`), каждый ненулевого размера.
 
 (Этот task не делает изменений, только фиксирует before-состояние для последующего регрессионного diff. Коммит не нужен.)
 
@@ -151,10 +151,12 @@ Expected: `0`.
 Run on dev (ОДНА команда; PUBKEY читается из dev'овского pub-файла и через ssh stdin кладётся на prod):
 ```bash
 PUBKEY=$(cat /home/new/.ssh/id_relay_dev_to_prod.pub)
-RESTRICTED="restrict,permitopen=\"127.0.0.1:30093\",permitopen=\"127.0.0.1:52223\" $PUBKEY"
+RESTRICTED='restrict,command="false",permitopen="127.0.0.1:30093",permitopen="127.0.0.1:52223" '"$PUBKEY"
 echo "$RESTRICTED" | ssh -i /home/new/.ssh/id_ed25519 root@185.221.160.175 "cat >> /root/.ssh/authorized_keys"
 ```
 Expected: команда отрабатывает без ошибок, ничего в stdout.
+
+⚠ Обрати внимание на кавычки: внешние одиночные `'…'` сохраняют двойные `"` буквально, а `'"$PUBKEY"'` подставляет переменную. Это критично — двойные кавычки вокруг `false` и портов должны попасть в `authorized_keys` как есть.
 
 - [ ] **Step 3.4: Verify строка появилась и в правильном формате**
 
@@ -162,22 +164,24 @@ Run on dev:
 ```bash
 ssh -i /home/new/.ssh/id_ed25519 root@185.221.160.175 "grep 'relay@dev$' /root/.ssh/authorized_keys"
 ```
-Expected: одна строка, начинается с `restrict,permitopen=...`, заканчивается ` relay@dev`.
+Expected: одна строка вида `restrict,command="false",permitopen="127.0.0.1:30093",permitopen="127.0.0.1:52223" ssh-ed25519 AAAA… relay@dev`. Двойные кавычки сохранены.
 
-- [ ] **Step 3.5: Verify ssh-аутентификация по новому ключу работает**
+- [ ] **Step 3.5: Verify ключ авторизуется и port-forward на разрешённый порт работает**
 
-Run on dev (только probe, без долгого соединения):
+Реальный smoke-test (запускаем `-N -L` фоном, curl через форвард, гасим). exec-тест бесполезен потому что `command="false"` всё переопределяет — поэтому проверяем именно ту функциональность, ради которой ключ существует:
 ```bash
 ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
+    -o ExitOnForwardFailure=yes \
     -i /home/new/.ssh/id_relay_dev_to_prod \
-    -o "PermitLocalCommand=no" \
-    root@185.221.160.175 \
-    -O check 2>&1 || \
-  ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new \
-      -i /home/new/.ssh/id_relay_dev_to_prod \
-      root@185.221.160.175 'true' 2>&1
+    -L 22299:127.0.0.1:30093 -N -f \
+    root@185.221.160.175
+sleep 2
+curl -sS -m 3 http://127.0.0.1:22299/tar1090/data/aircraft.json -o /dev/null -w "HTTP %{http_code}\n"
+pkill -f 'ssh.*-L 22299:127.0.0.1:30093.*id_relay_dev_to_prod'
 ```
-Expected: команда `true` отрабатывает БЕЗ shell-вывода (потому что `restrict` отказывает в shell, но публичная ключевая аутентификация прошла). Если получаем `Permission denied` — ключ не прошёл, проверять Step 3.3.
+Expected: `HTTP 200`.
+
+Если получаем `Permission denied` — проблема с самим ключом (Step 3.3). Если `HTTP 000` или ssh не запустился — `permitopen` не сработал (опечатка в строке authorized_keys).
 
 (Коммит не нужен — это правка на удалённом хосте, не в репо.)
 
@@ -594,9 +598,10 @@ Expected: `ads-b`.
 - [ ] **Step 9.5: Poller без `Connection refused`**
 
 ```bash
-sudo journalctl -u adsb18-poller -n 60 --no-pager | grep -c 'Connection refused' || echo 0
+COUNT=$(sudo journalctl -u adsb18-poller --since '2 min ago' --no-pager | grep -c 'Connection refused')
+echo "Connection refused за последние 2 минуты: $COUNT"
 ```
-Expected: `0` (или быстро убывающее число для строк ДО запуска relay).
+Expected: `0`. Окно «2 min ago» отсекает старые ошибки до запуска relay.
 
 - [ ] **Step 9.6: Лаг dev БД**
 
@@ -626,11 +631,187 @@ Expected: `aircraft` > 0.
 
 ---
 
-## Task 10: Регрессия — что НЕ сломалось
+## Task 10: Reliability & Security drills
+
+Цель — убедиться, что заявленные в spec'е failure-modes (раздел 6) и security-границы (раздел 4.2) действительно работают. Это **активное** тестирование с искусственными сбоями.
+
+⚠ Этот Task роняет relay на короткие промежутки. Если кто-то прямо сейчас активно использует dev для отладки — согласовать момент.
+
+### Drill 1 — stop/start relay (auto-recovery)
+
+- [ ] **Step 10.1.1: Засечь baseline лага БД**
+
+```bash
+sudo -u postgres psql -d adsb18 -c "SELECT now()-max(ts) AS lag FROM positions;"
+```
+Expected: `lag` < 10 сек (нормальное состояние).
+
+- [ ] **Step 10.1.2: Остановить relay**
+
+```bash
+sudo systemctl stop adsb18-relay
+date +%H:%M:%S
+sleep 30
+```
+
+- [ ] **Step 10.1.3: Verify лаг растёт**
+
+```bash
+sudo -u postgres psql -d adsb18 -c "SELECT now()-max(ts) AS lag FROM positions;"
+sudo journalctl -u adsb18-poller --since '40 sec ago' --no-pager | grep -c 'Connection refused'
+```
+Expected: `lag` ≥ 30 сек (растёт), `Connection refused` count ≥ 1 (поллер видит что туннель упал).
+
+- [ ] **Step 10.1.4: Запустить relay обратно**
+
+```bash
+sudo systemctl start adsb18-relay
+date +%H:%M:%S
+sleep 15
+```
+
+- [ ] **Step 10.1.5: Verify autossh поднял туннель и лаг восстановился**
+
+```bash
+ss -ltn '( sport = :30092 or sport = :52222 )'
+sudo -u postgres psql -d adsb18 -c "SELECT now()-max(ts) AS lag FROM positions;"
+```
+Expected: оба порта в LISTEN, `lag` снова < 10 сек.
+
+### Drill 2 — restart prod sshd (auto-reconnect)
+
+- [ ] **Step 10.2.1: Перезагрузить sshd на prod**
+
+```bash
+ssh -i /home/new/.ssh/id_ed25519 root@185.221.160.175 "systemctl restart ssh"
+date +%H:%M:%S
+```
+Expected: команда отрабатывает (наша же ssh-сессия может разорваться — это норма).
+
+- [ ] **Step 10.2.2: Verify autossh заметил разрыв**
+
+```bash
+sleep 10
+sudo journalctl -u adsb18-relay -n 20 --no-pager | tail -10
+```
+Expected: видим строки типа `client_loop: send disconnect: Connection reset` или `Connection to 185.221.160.175 closed by remote host`, затем `restarting ssh` (это autossh работает).
+
+- [ ] **Step 10.2.3: Verify туннель восстановился за ≤ 60 секунд**
+
+```bash
+sleep 50
+ss -ltn '( sport = :30092 or sport = :52222 )'
+curl -sS -m 5 http://127.0.0.1:30092/tar1090/data/aircraft.json | head -c 100
+```
+Expected: оба порта снова в LISTEN, `aircraft.json` отдаётся.
+
+### Drill 3 — security: попытка форварда на НЕ-разрешённый порт
+
+- [ ] **Step 10.3.1: Попытаться открыть `-L` на `:5432` (postgres)**
+
+```bash
+ssh -o BatchMode=yes -o ConnectTimeout=10 -o ExitOnForwardFailure=yes \
+    -i /home/new/.ssh/id_relay_dev_to_prod \
+    -L 12345:127.0.0.1:5432 -N -f \
+    root@185.221.160.175 2>&1 | head
+echo "exit code: $?"
+```
+Expected: ssh падает с `administratively prohibited: open failed` или `forwarding request failed`, **exit code != 0**. Если процесс таки запустился — pkill его и считать drill failed: `permitopen` не работает.
+
+- [ ] **Step 10.3.2: Verify никакого процесса не осталось**
+
+```bash
+pgrep -f 'ssh.*-L 12345' || echo "no leftover ssh process"
+```
+Expected: `no leftover ssh process`.
+
+### Drill 4 — security: попытка exec и pty (должны быть заблокированы)
+
+- [ ] **Step 10.4.1: Попытаться выполнить exec-команду через ключ**
+
+```bash
+OUTPUT=$(ssh -o BatchMode=yes -o ConnectTimeout=10 \
+    -i /home/new/.ssh/id_relay_dev_to_prod \
+    root@185.221.160.175 'cat /etc/passwd' 2>&1)
+EXIT=$?
+echo "exit code: $EXIT"
+echo "stdout/stderr: '$OUTPUT'"
+```
+Expected: `exit code: 1` (это `false`, не `cat`), `stdout/stderr` пустой или содержит только banner-сообщения, **никаких строк из /etc/passwd**. Если в выводе видишь строки `root:x:0:0:...` — `command="false"` не сработал, security drill failed.
+
+- [ ] **Step 10.4.2: Попытаться открыть интерактивный pty**
+
+```bash
+ssh -tt -o BatchMode=yes -o ConnectTimeout=10 \
+    -i /home/new/.ssh/id_relay_dev_to_prod \
+    root@185.221.160.175 2>&1 | head -3
+echo "exit code: $?"
+```
+Expected: вывод содержит `PTY allocation request failed on channel 0` (от `restrict` → `no-pty`), exit code != 0.
+
+- [ ] **Step 10.4.3: Попытаться использовать ssh agent forwarding**
+
+```bash
+ssh -A -o BatchMode=yes -o ConnectTimeout=10 \
+    -i /home/new/.ssh/id_relay_dev_to_prod \
+    root@185.221.160.175 -N 2>&1 &
+SSH_PID=$!
+sleep 3
+sudo journalctl -u ssh --since '5 sec ago' --no-pager 2>/dev/null | head
+kill $SSH_PID 2>/dev/null
+```
+Expected: либо в журнале появляется упоминание `agent forwarding disabled`, либо ssh клиент молча игнорирует `-A` (так как `restrict` блокирует). Главное — **никакого риска** что атакующий получит наш SSH-агент.
+
+### Drill 5 — compromise: удалить строку из authorized_keys и восстановить
+
+- [ ] **Step 10.5.1: Удалить строку relay@dev на prod**
+
+```bash
+ssh -i /home/new/.ssh/id_ed25519 root@185.221.160.175 "
+  cp /root/.ssh/authorized_keys /root/.ssh/authorized_keys.drill5.bak
+  sed -i '/relay@dev$/d' /root/.ssh/authorized_keys
+  grep -c 'relay@dev$' /root/.ssh/authorized_keys || true
+"
+```
+Expected: вторая команда — `0` (строки больше нет).
+
+- [ ] **Step 10.5.2: Дождаться, пока autossh потеряет соединение**
+
+```bash
+sleep 60   # дольше чем ServerAliveInterval=30 × Count=3
+sudo journalctl -u adsb18-relay --since '70 sec ago' --no-pager | grep -iE 'permission denied|publickey'
+```
+Expected: видим `Permission denied (publickey)` от ssh-клиента — значит autossh пытается, не пускают, restart-loop.
+
+- [ ] **Step 10.5.3: Восстановить строку из backup**
+
+```bash
+ssh -i /home/new/.ssh/id_ed25519 root@185.221.160.175 "
+  mv /root/.ssh/authorized_keys.drill5.bak /root/.ssh/authorized_keys
+  grep -c 'relay@dev$' /root/.ssh/authorized_keys
+"
+```
+Expected: вторая команда — `1` (строка вернулась).
+
+- [ ] **Step 10.5.4: Verify relay сам восстановился**
+
+```bash
+sleep 20
+sudo systemctl is-active adsb18-relay
+ss -ltn '( sport = :30092 or sport = :52222 )'
+sudo -u postgres psql -d adsb18 -c "SELECT now()-max(ts) AS lag FROM positions;"
+```
+Expected: `active`, оба порта в LISTEN, `lag` снова < 30 сек.
+
+(Drills passed → security и reliability подтверждены. Коммит не нужен, всё восстановлено.)
+
+---
+
+## Task 11: Регрессия — что НЕ сломалось
 
 **Files:** только проверки.
 
-- [ ] **Step 10.1: dev сервисы**
+- [ ] **Step 11.1: dev сервисы**
 
 ```bash
 for s in adsb18-api adsb18-poller adsb18-nginx postgresql; do
@@ -639,7 +820,7 @@ done
 ```
 Expected: все `active`.
 
-- [ ] **Step 10.2: prod сервисы**
+- [ ] **Step 11.2: prod сервисы**
 
 ```bash
 ssh -i /home/new/.ssh/id_ed25519 root@185.221.160.175 "
@@ -654,7 +835,7 @@ ssh -i /home/new/.ssh/id_ed25519 root@185.221.160.175 "
 ```
 Expected: все сервисы `active`, `HTTP 200`, лаг < 10 сек.
 
-- [ ] **Step 10.3: Pi сервисы**
+- [ ] **Step 11.3: Pi сервисы**
 
 ```bash
 ssh -i /home/new/.ssh/id_ed25519 -J root@185.221.160.175 -p 52223 ads-b@127.0.0.1 "
@@ -668,14 +849,14 @@ Expected: `adsb-tunnel-prod` и `readsb` — `active`. `adsb-tunnel` — `inacti
 
 ---
 
-## Task 11: Финальный acceptance — цикл разработки (опционально, по согласованию с Андреем)
+## Task 12: Финальный acceptance — цикл разработки (опционально, по согласованию с Андреем)
 
 ⚠ Этот тест **видимо** меняет `https://adsb18.ru/` для всех пользователей. Выполнять только когда отображение `[DEV]` на живом сайте допустимо.
 
 **Files:**
 - Modify: `frontend/index.html` — `<title>tar1090</title>` → `<title>tar1090 [DEV]</title>` (и обратно)
 
-- [ ] **Step 11.1: Внести правку**
+- [ ] **Step 12.1: Внести правку**
 
 ```bash
 cd /home/new/adsb18
@@ -684,14 +865,14 @@ grep '<title>' frontend/index.html
 ```
 Expected: `<title>tar1090 [DEV]</title>`.
 
-- [ ] **Step 11.2: Сжать, если используется gzip_static**
+- [ ] **Step 12.2: Сжать, если используется gzip_static**
 
 ```bash
 gzip -k -f frontend/index.html
 ls -la frontend/index.html*
 ```
 
-- [ ] **Step 11.3: Verify видно на dev**
+- [ ] **Step 12.3: Verify видно на dev**
 
 ```bash
 curl -sS http://127.0.0.1:8098/ | grep '<title>'
@@ -751,10 +932,11 @@ Expected: оба показывают `<title>tar1090</title>` (без `[DEV]`).
 
 - ✅ Task 5 шаги 5.4 и 5.5 проходят (HTTP и SSH туннели через relay работают)
 - ✅ Task 6 шаг 6.7 проходит (dev БД пишется, лаг < 10 сек)
-- ✅ Task 9 — все 8 smoke-критериев зелёные
-- ✅ Task 10 — все регрессионные проверки зелёные (на prod и Pi ничего не сломано)
 - ✅ Task 8 — TROUBLESHOOTING + CLAUDE.md обновлены и запушены
-- ✅ (опционально) Task 11 — цикл разработки прогнан end-to-end
+- ✅ Task 9 — все 8 smoke-критериев зелёные
+- ✅ Task 10 — все 5 drills проходят: stop/start, sshd restart, отказ форварда на запрещённый порт, отказ exec и pty, compromise/restore ключа
+- ✅ Task 11 — все регрессионные проверки зелёные (на prod и Pi ничего не сломано)
+- ✅ (опционально) Task 12 — цикл разработки прогнан end-to-end
 
 ## Rollback (если что-то пошло не так)
 
