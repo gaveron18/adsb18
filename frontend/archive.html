@@ -765,6 +765,8 @@ loadPoints(true);
 // ── Load flight list ──────────────────────────────────────────────────────────
 async function loadArchive(autoSelect = false) {
     const token = ++archiveLoadToken;
+    console.log('[loadArchive] START token=' + token + ' autoSelect=' + autoSelect);
+    console.trace('[loadArchive] caller');
     const from = inputToUTC(document.getElementById('fromDt').value);
     const to   = inputToUTC(document.getElementById('toDt').value);
     if (!from || !to) { alert('Выберите период'); return; }
@@ -780,16 +782,18 @@ async function loadArchive(autoSelect = false) {
 
     try {
         const r = await fetch(`/api/archive?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-        if (token !== archiveLoadToken) return;
+        if (token !== archiveLoadToken) { console.log('[loadArchive] token=' + token + ' CANCELLED (token mismatch)'); return; }
         allFlights = await r.json();
-        if (token !== archiveLoadToken) return;
+        if (token !== archiveLoadToken) { console.log('[loadArchive] token=' + token + ' CANCELLED after json()'); return; }
         document.getElementById('flightCount').textContent = allFlights.length;
         document.getElementById('searchInput').value = '';
 
         if (!allFlights.length) {
+            console.log('[loadArchive] token=' + token + ' NO DATA');
             list.innerHTML = '<div class="empty">Нет данных за выбранный период</div>';
             return;
         }
+        console.log('[loadArchive] token=' + token + ' got ' + allFlights.length + ' flights — building list');
 
         savePeriod();
         list.innerHTML = '';
