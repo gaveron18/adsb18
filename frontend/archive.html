@@ -550,6 +550,7 @@ function onDotIntervalChange() {
     });
 }
 let allFlights = [];
+let archiveLoadToken = 0;
 
 // ── Timezone ──────────────────────────────────────────────────────────────────
 const TZ_PRESETS = [
@@ -763,6 +764,7 @@ loadPoints(true);
 
 // ── Load flight list ──────────────────────────────────────────────────────────
 async function loadArchive(autoSelect = false) {
+    const token = ++archiveLoadToken;
     const from = inputToUTC(document.getElementById('fromDt').value);
     const to   = inputToUTC(document.getElementById('toDt').value);
     if (!from || !to) { alert('Выберите период'); return; }
@@ -778,7 +780,9 @@ async function loadArchive(autoSelect = false) {
 
     try {
         const r = await fetch(`/api/archive?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+        if (token !== archiveLoadToken) return;
         allFlights = await r.json();
+        if (token !== archiveLoadToken) return;
         document.getElementById('flightCount').textContent = allFlights.length;
         document.getElementById('searchInput').value = '';
 
@@ -804,6 +808,7 @@ async function loadArchive(autoSelect = false) {
             }
         }
     } catch(e) {
+        if (token !== archiveLoadToken) return;
         list.innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`;
     }
 }
