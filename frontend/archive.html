@@ -765,8 +765,6 @@ loadPoints(true);
 // ── Load flight list ──────────────────────────────────────────────────────────
 async function loadArchive(autoSelect = false) {
     const token = ++archiveLoadToken;
-    console.log('[loadArchive] START token=' + token + ' autoSelect=' + autoSelect);
-    console.trace('[loadArchive] caller');
     const from = inputToUTC(document.getElementById('fromDt').value);
     const to   = inputToUTC(document.getElementById('toDt').value);
     if (!from || !to) { alert('Выберите период'); return; }
@@ -782,18 +780,16 @@ async function loadArchive(autoSelect = false) {
 
     try {
         const r = await fetch(`/api/archive?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-        if (token !== archiveLoadToken) { console.log('[loadArchive] token=' + token + ' CANCELLED (token mismatch)'); return; }
+        if (token !== archiveLoadToken) return;
         allFlights = await r.json();
-        if (token !== archiveLoadToken) { console.log('[loadArchive] token=' + token + ' CANCELLED after json()'); return; }
+        if (token !== archiveLoadToken) return;
         document.getElementById('flightCount').textContent = allFlights.length;
         document.getElementById('searchInput').value = '';
 
         if (!allFlights.length) {
-            console.log('[loadArchive] token=' + token + ' NO DATA');
             list.innerHTML = '<div class="empty">Нет данных за выбранный период</div>';
             return;
         }
-        console.log('[loadArchive] token=' + token + ' got ' + allFlights.length + ' flights — building list');
 
         savePeriod();
         list.innerHTML = '';
@@ -801,13 +797,14 @@ async function loadArchive(autoSelect = false) {
         if (autoSelect) {
             let saved = [];
             try { saved = JSON.parse(localStorage.getItem('adsb18_active_tracks') || '[]'); } catch {}
+            if (saved.length > 10) saved = saved.slice(0, 10);
             if (saved.length) {
                 const savedSet = new Set(saved.map(function(s) { return s.toUpperCase(); }));
                 const items = [...document.querySelectorAll('.flight-item')];
                 for (const el of items) {
                     if (!savedSet.has((el.dataset.icao || '').toUpperCase())) continue;
                     const f = allFlights.find(function(x) { return x.icao.toUpperCase() === (el.dataset.icao || '').toUpperCase(); });
-                    if (f) addTrack(f, el, el.dataset.color, true); // skipFit=true: keep restored map position
+                    if (f) await addTrack(f, el, el.dataset.color, true);
                 }
             }
         }
