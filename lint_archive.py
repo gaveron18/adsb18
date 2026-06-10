@@ -3,14 +3,15 @@
 lint_archive.py — проверки archive.html перед деплоем
 Запускать после каждого изменения frontend/archive.html
 """
-import re, sys, subprocess, os
+import re, sys, subprocess, os, tempfile
 
-HTML = '/home/new/adsb18/frontend/archive.html'
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+HTML = os.path.join(SCRIPT_DIR, 'frontend', 'archive.html')
 GZ   = HTML + '.gz'
 errors = []
 
 # ── 1. Читаем файл ────────────────────────────────────────────────────────────
-with open(HTML) as f:
+with open(HTML, encoding='utf-8') as f:
     content = f.read()
 lines = content.splitlines()
 
@@ -20,14 +21,17 @@ if len(scripts) < 2:
     errors.append('ERROR: не найден основной script блок')
 else:
     js = scripts[1]
-    with open('/tmp/_archive_lint.js', 'w') as f:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False, encoding='utf-8') as f:
+        tmp_js = f.name
         f.write(js)
-    r = subprocess.run(['node', '--check', '/tmp/_archive_lint.js'],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
-        errors.append(f'ERROR JS синтаксис:\n{r.stderr.strip()}')
-    else:
-        print('  ✓ JS синтаксис OK')
+    try:
+        r = subprocess.run(['node', '--check', tmp_js], capture_output=True, text=True)
+        if r.returncode != 0:
+            errors.append(f'ERROR JS синтаксис:\n{r.stderr.strip()}')
+        else:
+            print('  ✓ JS синтаксис OK')
+    finally:
+        os.unlink(tmp_js)
 
 # ── 3. TDZ: let/const после init блока ───────────────────────────────────────
 init_line = None
@@ -40,8 +44,6 @@ if init_line is None:
     errors.append('ERROR: не найден init блок (// ── Init)')
 else:
     tdz_found = []
-    # Ищем top-level let/const — строки начинающиеся с let/const (не внутри функции)
-    # Простая эвристика: строка начинается с "let " или "const " без отступа
     for i, line in enumerate(lines[init_line:], start=init_line+1):
         if re.match(r'^(let|const)\s+\w', line):
             tdz_found.append(f'  строка {i}: {line.strip()}')
@@ -53,12 +55,12 @@ else:
 
 # ── 4. gzip актуален ─────────────────────────────────────────────────────────
 if not os.path.exists(GZ):
-    errors.append('ERROR: archive.html.gz не существует — запусти: gzip -k -f ' + HTML)
+    errors.append('ERROR: archive.html.gz не существует — запусти: gzip -k -f frontend/archive.html')
 else:
     html_mtime = os.path.getmtime(HTML)
     gz_mtime   = os.path.getmtime(GZ)
     if gz_mtime < html_mtime:
-        errors.append('ERROR: archive.html.gz устарел — запусти: gzip -k -f ' + HTML)
+        errors.append('ERROR: archive.html.gz устарел — запусти: gzip -k -f frontend/archive.html')
     else:
         print('  ✓ gzip актуален')
 

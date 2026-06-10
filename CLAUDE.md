@@ -20,17 +20,19 @@ ADS-B сервер сбора и визуализации данных о воз
 | **Dev / staging** | `new@173.249.2.184` (`/home/new/adsb18/`) | http://173.249.2.184:8098 | :30092 |
 
 - Pi3 шлёт туннели на **оба** сервера одновременно — это норма.
-- Текущая сессия Claude (по умолчанию) работает на **dev** (173.249.2.184). Все команды в этом файле относятся к dev, если не указано иное.
-- **Деплой на prod:** `git pull` вручную на prod (после `git push` с dev). SSH-доступ к prod — только с рабочей машины Андрея, с dev на prod ssh нет.
+- **Код редактируется локально на Windows** (`C:\Users\VseExperti\Projects\adsb18\`). VPS больше не используется для разработки.
+- **Деплой:** `git push` с Windows → `git prod` (алиас: `plink` на prod делает `git pull`).
+- SSH-доступ к prod — только с рабочей машины Андрея (Windows).
 - При жалобе пользователя «сайт не работает» проверять https://adsb18.ru, **не** http://173.249.2.184:8098.
 
 ---
 
 ## Обязательно при старте сессии
 
-1. `ssh new@173.249.2.184 "cat /home/new/adsb18/ARCHITECTURE.md"`
-2. `ssh new@173.249.2.184 "cat /home/new/adsb18/TROUBLESHOOTING.md"`
-3. `ssh new@173.249.2.184 "ls /home/new/adsb18/docs/session_*.md | tail -1 | xargs cat"`
+Файлы лежат локально — читать напрямую:
+1. `ARCHITECTURE.md`
+2. `TROUBLESHOOTING.md`
+3. Последний файл из `docs/session_*.md`
 
 ---
 
@@ -233,16 +235,13 @@ crontab -l | sed 's|^\*/5|#*/5|' | crontab -
 ## Git workflow
 
 ```bash
-# Обычный деплой
-git add ...
-git commit -m "..."
+# Любые изменения (терминал Git Bash в VS Code)
+git add .
+git commit -m "описание"   # gzip для archive.html запустится автоматически через pre-commit hook
 git push
 
-# После изменений frontend
-gzip -k -f frontend/archive.html
-git add frontend/archive.html frontend/archive.html.gz
-git commit -m "..."
-git push
+# Деплой на прод
+git prod                   # алиас: plink на 185.221.160.175 делает git pull
 ```
 
 **Session лог обновляется в том же коммите что и код** — не пушить код без лога.
