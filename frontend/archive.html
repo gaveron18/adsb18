@@ -388,7 +388,7 @@
             <span id="dotIntervalLabel">5 км</span>
         </div>
         <div class="search-box">
-            <input type="text" id="searchInput" placeholder="Поиск по рейсу или ICAO…" oninput="filterFlights()">
+            <input type="text" id="searchInput" placeholder="Поиск по рейсу или ICAO…" oninput="filterFlights()" autocomplete="off">
         </div>
         <div class="flight-list" id="flightList">
             <div class="empty">Выберите период и нажмите «Загрузить»</div>
@@ -773,9 +773,13 @@ loadPoints(true);
                 console.warn('[flightList CLEARED] now="' + html + '"');
                 console.trace('[flightList CLEARED] caller');
             }
+            if (m.type === 'attributes' && m.target !== list && m.target.style && m.target.style.display === 'none') {
+                console.warn('[flightItem HIDDEN] icao=' + (m.target.dataset ? m.target.dataset.icao : '?'));
+                console.trace('[flightItem HIDDEN] caller');
+            }
         }
     });
-    obs.observe(list, { childList: true, subtree: false });
+    obs.observe(list, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
 })();
 
 // ── Load flight list ──────────────────────────────────────────────────────────
@@ -818,6 +822,7 @@ async function loadArchive(autoSelect = false) {
                 const savedSet = new Set(saved.map(function(s) { return s.toUpperCase(); }));
                 const items = [...document.querySelectorAll('.flight-item')];
                 for (const el of items) {
+                    if (token !== archiveLoadToken) break;
                     if (!savedSet.has((el.dataset.icao || '').toUpperCase())) continue;
                     const f = allFlights.find(function(x) { return x.icao.toUpperCase() === (el.dataset.icao || '').toUpperCase(); });
                     if (f) await addTrack(f, el, el.dataset.color, true);
@@ -1062,6 +1067,7 @@ function showInfo(f, color) {
 // ── Search filter ─────────────────────────────────────────────────────────────
 function filterFlights() {
     const q = document.getElementById('searchInput').value.trim().toUpperCase();
+    if (q) { console.warn('[filterFlights] query="' + q + '"'); console.trace('[filterFlights] called with non-empty query'); }
     const items = document.querySelectorAll('.flight-item');
     let visible = 0;
     items.forEach(el => {
