@@ -762,6 +762,22 @@ initDatePickers(true);
 loadArchive(true);
 loadPoints(true);
 
+// ── DEBUG: catch who clears flightList ──────────────────────────────────────
+(function() {
+    const list = document.getElementById('flightList');
+    if (!list) return;
+    const obs = new MutationObserver(function(muts) {
+        for (const m of muts) {
+            if (m.type === 'childList' && m.removedNodes.length > 0) {
+                const html = list.innerHTML.slice(0, 80);
+                console.warn('[flightList CLEARED] now="' + html + '"');
+                console.trace('[flightList CLEARED] caller');
+            }
+        }
+    });
+    obs.observe(list, { childList: true, subtree: false });
+})();
+
 // ── Load flight list ──────────────────────────────────────────────────────────
 async function loadArchive(autoSelect = false) {
     const token = ++archiveLoadToken;
